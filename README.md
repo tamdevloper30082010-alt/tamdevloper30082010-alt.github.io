@@ -122,6 +122,60 @@ export SUPABASE_ACCESS_TOKEN=sbp_...
 Lệnh này nâng role của đúng một tài khoản và ghi vào nhật ký kiểm toán. Từ đó, admin
 có thể cấp/thu quyền cho người khác ngay trong trang quản trị.
 
+## Thông báo Discord
+
+Mỗi sự kiện đáng chú ý bắn tin vào Discord, gồm: admin đăng nhiệm vụ mới,
+thành quả được duyệt / bị từ chối, yêu cầu rút tiền được duyệt / bị từ chối,
+có tài khoản mới, và điều chỉnh số dư. Mọi tin về tiền đều kèm **số dư của
+người dùng lúc gửi** — tính thẳng từ sổ cái sau khi ghi dòng giao dịch, nên
+không bao giờ lệch.
+
+### Vì sao gửi từ database, không gửi từ trình duyệt
+
+URL webhook nằm trong bundle thì bất kỳ ai mở DevTools cũng lấy được, rồi spam
+kênh Discord tới khi bị ban. Nên:
+
+- URL webhook + role ID nằm trong **`supabase_vault`** — publishable key không
+  đọc được.
+- Tin bắn bằng **`pg_net`** ngay trong database. Request chỉ đi khi transaction
+  COMMIT, nên nghiệp vụ rollback thì không có tin ma.
+- `notify_discord` **không cấp quyền** cho `anon`/`authenticated`. Không ai
+  gõ nội dung tuỳ ý vào kênh được. Chỉ các hàm `SECURITY DEFINER` bên trong
+  database gọi được.
+- Mỗi lời gọi được bọc `begin … exception` **ở hàm gọi**, không chỉ trong
+  `notify_discord`: các biểu thức trong danh sách tham số được đánh giá *trước*
+  khi vào thân hàm đích, nên lỗi ở đó nổi ra ngoài khối exception bên trong.
+  Discord hỏng không được làm hỏng việc đăng nhiệm vụ hay duyệt tiền.
+
+### Bật / tắt từng loại, không cần sửa code
+
+```sql
+-- cho phép ping role khi có nhiệm vụ mới (mặc định đã bật)
+update public.discord_notify_rules set mention = true where event = 'evidence_rejected';
+-- tắt hẳn một loại thông báo
+update public.discord_notify_rules set enabled = false where event = 'user_signup';
+```
+
+Mặc định **chỉ `task_created` ping role**: nhắc cả lúc duyệt tiền sẽ ping cả
+server mỗi lần có người rút, ồn rồi không ai đọc.
+
+### Discord có nhắc role được không
+
+Webhook chỉ nhắc được role nếu chủ server bật:
+**Server Settings → Integrations → chọn webhook → "Allow this webhook to
+mention @everyone and @here roles"**. Đã kiểm tra: role `Nhận nhiệm vụ` được
+nhắc thành công.
+
+### Cài mới
+
+```bash
+./scripts/db.sh supabase/schema.sql
+./scripts/db.sh supabase/discord-notify.sql
+# rồi tạo 2 bí mật (URL webhook KHÔNG commit vào git):
+#   select vault.create_secret('<webhook url>', 'discord_webhook_url', 'Webhook Discord');
+#   select vault.create_secret('<role id>',    'discord_role_id',    'Role Discord được nhắc');
+```
+
 ## Số dư âm và bù nợ
 
 Admin trừ được số dư bằng số âm — ví dụ khi người dùng hoàn tiền sai, dùng thẻ
@@ -210,6 +264,8 @@ scripts/test-withdraw.mjs bộ test riêng cho rút tiền (64 phép)
 scripts/test-archive.mjs  bộ test ẩn/xoá nhiệm vụ (20 phép)
 scripts/test-evidence.mjs bộ test loại nhiệm vụ + ảnh thành quả (41 phép)
 scripts/test-debt.mjs     bộ test điều chỉnh số dư âm + bù nợ (27 phép)
+scripts/test-discord.mjs  bộ test thông báo Discord (15 phép)
+supabase/discord-notify.sql  Vault + pg_net + thông báo Discord
 scripts/reset-test-data.sql dọn dữ liệu test
 src/lib/money.ts         tiền — chỉ số nguyên, VND không có phần thập phân
 src/lib/supabase.ts      client + cách rút thông điệp lỗi tiếng Việt từ DB
