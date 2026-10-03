@@ -1,0 +1,26 @@
+<!doctype html>
+<html lang="vi">
+  <head>
+    <meta charset="UTF-8" />
+    <title>Đang tải…</title>
+    <script>
+      /*
+       * GitHub Pages phục vụ file tĩnh: mở thẳng /cong-viec hay /rut-tien sẽ
+       * trả 404 vì không có file đó trên đĩa. Ta nhớ lại đường dẫn rồi quay
+       * về index.html, sau đó main.tsx đưa định hồi trở lại URL thật.
+       */
+      ;(function () {
+        try {
+          sessionStorage.setItem(
+            'vn-redirect',
+            window.location.pathname + window.location.search + window.location.hash,
+          )
+        } catch (e) {
+          /* private mode — không nhớ được thì cứ vào trang chủ */
+        }
+        window.location.replace('/')
+      })()
+    </script>
+  </head>
+  <body></body>
+</html>

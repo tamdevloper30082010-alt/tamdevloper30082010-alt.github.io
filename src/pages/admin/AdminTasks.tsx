@@ -1,0 +1,536 @@
+import { useCallback, useEffect, useMemo, useState } from 'react'
+import { useToast } from '../../components/Toast'
+import {
+  Badge,
+  Button,
+  Card,
+  Empty,
+  Field,
+  Input,
+  Modal,
+  Select,
+  Spinner,
+  Textarea,
+  cx,
+} from '../../components/ui'
+import { supabase, errMessage } from '../../lib/supabase'
+import {
+  MAX_PRICE,
+  MIN_PRICE,
+  formatVnd,
+  isValidPrice,
+  parseVnd,
+  priceHint,
+  stripSeparators,
+  validateQuantity,
+} from '../../lib/money'
+import { PLATFORM_LABEL, PLATFORM_STYLE, type Platform, type Task } from '../../lib/types'
+
+const PLATFORMS: Platform[] = ['youtube', 'tiktok', 'facebook', 'website', 'seo', 'khac']
+
+type Filter = 'live' | 'closed' | 'archived' | 'all'
+const FILTERS: { k: Filter; label: string }[] = [
+  { k: 'live', label: 'Đang mở' },
+  { k: 'closed', label: 'Đã đóng' },
+  { k: 'archived', label: 'Đã ẩn' },
+  { k: 'all', label: 'Tất cả' },
+]
+
+const blank = {
+  title: '',
+  description: '',
+  target_url: '',
+  platform: 'khac' as Platform,
+  price: '',
+  quantity: '10',
+  deadline: '',
+  priority: 'normal' as 'normal' | 'hot',
+}
+type Form = typeof blank
+
+function fromTask(t: Task): Form {
+  return {
+    title: t.title,
+    description: t.description,
+    target_url: '', // không đọc được từ view; admin xem ở hàng đợi duyệt
+    platform: t.platform,
+    price: String(t.price_vnd),
+    quantity: String(t.quantity),
+    deadline: t.deadline_at ? new Date(t.deadline_at).toISOString().slice(0, 16) : '',
+    priority: t.priority,
+  }
+}
+
+export default function AdminTasks() {
+  const toast = useToast()
+  const [tasks, setTasks] = useState<Task[]>([])
+  const [loading, setLoading] = useState(true)
+  const [editing, setEditing] = useState<Task | 'new' | null>(null)
+  const [form, setForm] = useState<Form>(blank)
+  const [errs, setErrs] = useState<Partial<Record<keyof Form, string>>>({})
+  const [busy, setBusy] = useState(false)
+  const [filter, setFilter] = useState<Filter>('live')
+
+  const load = useCallback(async () => {
+    const { data, error } = await supabase
+      .from('v_tasks_admin')
+      .select('*')
+      .order('created_at', { ascending: false })
+      .limit(300)
+    if (error) return toast(errMessage(error, 'Không tải được danh sách nhiệm vụ.'), 'err')
+    setTasks((data as Task[]) ?? [])
+    setLoading(false)
+  }, [toast])
+
+  useEffect(() => {
+    void load()
+  }, [load])
+
+  const open = (t: Task | 'new') => {
+    setErrs({})
+    setForm(t === 'new' ? blank : fromTask(t))
+    setEditing(t)
+  }
+
+  const validate = (): Partial<Record<keyof Form, string>> => {
+    const e: Partial<Record<keyof Form, string>> = {}
+    if (form.title.trim().length < 3) e.title = 'Tiêu đề ít nhất 3 ký tự.'
+    if (editing === 'new' && !/^https?:\/\/\S+$/i.test(form.target_url.trim()))
+      e.target_url = 'Link phải bắt đầu bằng http:// hoặc https://'
+    if (!isValidPrice(form.price)) e.price = priceHint()
+    if (!validateQuantity(Number(form.quantity))) e.quantity = 'Số lượt từ 1 đến 10.000.'
+    setErrs(e)
+    return e
+  }
+
+  const save = async () => {
+    if (!editing) return
+    if (Object.keys(validate()).length) return
+
+    const price = parseVnd(form.price)!
+    const qty = Number(form.quantity)
+    const deadline = form.deadline ? new Date(form.deadline).toISOString() : null
+
+    setBusy(true)
+    const { error } =
+      editing === 'new'
+        ? await supabase.rpc('admin_create_task', {
+            p_title: form.title,
+            p_description: form.description,
+            p_target_url: form.target_url,
+            p_platform: form.platform,
+            p_price_vnd: price,
+            p_quantity: qty,
+            p_deadline_at: deadline,
+            p_priority: form.priority,
+          })
+        : await supabase.rpc('admin_update_task', {
+            p_task_id: editing.id,
+            p_title: form.title,
+            p_description: form.description,
+            p_target_url: form.target_url.trim() || null,
+            p_platform: form.platform,
+            p_price_vnd: price,
+            p_quantity: qty,
+            p_deadline_at: deadline,
+            p_priority: form.priority,
+            p_status: 'open',
+          })
+
+    setBusy(false)
+    if (error) return toast(errMessage(error), 'err')
+    toast(editing === 'new' ? 'Đã đăng nhiệm vụ lên trang chủ.' : 'Đã cập nhật nhiệm vụ.', 'ok')
+    setEditing(null)
+    void load()
+  }
+
+  const del = async (t: Task) => {
+    if (!confirm(`Xoá hẳn nhiệm vụ “${t.title}”?\n\nNhiệm vụ này chưa có ai nhận nên xoá được.`))
+      return
+    setBusy(true)
+    const { error } = await supabase.rpc('admin_delete_task', { p_task_id: t.id })
+    setBusy(false)
+    if (error) return toast(errMessage(error), 'err')
+    toast('Đã xoá nhiệm vụ.', 'ok')
+    void load()
+  }
+
+  // ẨN — luôn dùng được, kể cả khi đã có người nhận. Lịch sử tiền giữ nguyên.
+  const toggleArchive = async (t: Task) => {
+    const archiving = !t.archived_at
+    if (archiving && !confirm(`Ẩn “${t.title}” khỏi danh sách?\n\nNhiệm vụ sẽ không còn ai nhận được, nhưng lịch sử người đã làm vẫn được giữ.`))
+      return
+    setBusy(true)
+    const { error } = await supabase.rpc('admin_archive_task', {
+      p_task_id: t.id,
+      p_archive: archiving,
+    })
+    setBusy(false)
+    if (error) return toast(errMessage(error), 'err')
+    toast(archiving ? 'Đã ẩn khỏi danh sách.' : 'Đã đưa nhiệm vụ trở lại danh sách.', 'ok')
+    void load()
+  }
+
+  const toggleClose = async (t: Task) => {
+    const closing = t.remaining > 0
+    setBusy(true)
+    const { error } = await supabase.rpc('admin_update_task', {
+      p_task_id: t.id,
+      p_title: t.title,
+      p_description: t.description,
+      p_target_url: null,
+      p_platform: t.platform,
+      p_price_vnd: t.price_vnd,
+      p_quantity: t.quantity,
+      p_deadline_at: t.deadline_at,
+      p_priority: t.priority,
+      p_status: closing ? 'closed' : 'open',
+    })
+    setBusy(false)
+    if (error) return toast(errMessage(error), 'err')
+    void load()
+  }
+
+  const counts = useMemo(
+    () => ({
+      all: tasks.length,
+      live: tasks.filter((t) => !t.archived_at && t.remaining > 0).length,
+      closed: tasks.filter((t) => !t.archived_at && t.remaining <= 0).length,
+      archived: tasks.filter((t) => t.archived_at).length,
+    }),
+    [tasks],
+  )
+
+  const list = tasks.filter((t) => {
+    if (filter === 'archived') return !!t.archived_at
+    if (t.archived_at) return false
+    if (filter === 'live') return t.remaining > 0
+    if (filter === 'closed') return t.remaining <= 0
+    return true
+  })
+
+  if (loading) return <Spinner label="Đang tải…" />
+
+  return (
+    <div className="space-y-5">
+      <div className="flex flex-wrap items-end justify-between gap-3">
+        <div>
+          <h1 className="text-2xl font-extrabold tracking-tight">Quản lý nhiệm vụ</h1>
+          <p className="mt-1 text-sm text-muted">Đăng nhiệm vụ và đặt mức thưởng VND.</p>
+        </div>
+        <Button onClick={() => open('new')} size="lg">
+          + Đăng nhiệm vụ
+        </Button>
+      </div>
+
+      <div className="flex gap-1.5 overflow-x-auto pb-1">
+        {FILTERS.map((f) => (
+          <button
+            key={f.k}
+            onClick={() => setFilter(f.k)}
+            className={cx(
+              'shrink-0 cursor-pointer rounded-lg px-3.5 py-2 text-sm font-semibold whitespace-nowrap transition-all',
+              filter === f.k ? 'bg-accent text-black' : 'text-muted hover:bg-line/8 hover:text-fg',
+            )}
+          >
+            {f.label}
+            {counts[f.k] ? (
+              <span
+                className={cx(
+                  'money ml-1.5 rounded-full px-1.5 py-0.5 text-[10px]',
+                  filter === f.k ? 'bg-black/20' : 'bg-line/10',
+                )}
+              >
+                {counts[f.k]}
+              </span>
+            ) : null}
+          </button>
+        ))}
+      </div>
+
+      {list.length === 0 ? (
+        <Empty
+          title={filter === 'archived' ? 'Chưa ẩn nhiệm vụ nào' : 'Không có nhiệm vụ nào'}
+          hint={
+            filter === 'live'
+              ? 'Bấm “Đăng nhiệm vụ” để tạo nhiệm vụ đầu tiên.'
+              : filter === 'archived'
+                ? 'Nhiệm vụ đã gỡ khỏi danh sách sẽ nằm ở đây.'
+                : undefined
+          }
+          action={
+            filter === 'live' ? (
+              <Button onClick={() => open('new')}>+ Đăng nhiệm vụ</Button>
+            ) : undefined
+          }
+        />
+      ) : (
+        <>
+          {/* Bảng — từ md trở lên */}
+          <Card className="hidden overflow-hidden md:block">
+            <table className="w-full text-left text-sm">
+              <thead className="border-b border-line/10 text-[11px] tracking-wider text-muted uppercase">
+                <tr>
+                  <th className="px-4 py-3 font-semibold">Nhiệm vụ</th>
+                  <th className="px-4 py-3 font-semibold">Thưởng</th>
+                  <th className="px-4 py-3 font-semibold">Lượt</th>
+                  <th className="px-4 py-3 font-semibold">Trạng thái</th>
+                  <th className="px-4 py-3" />
+                </tr>
+              </thead>
+              <tbody className="divide-y divide-line/8">
+                {list.map((t) => {
+                  const taken = (t.sub_count ?? 0) > 0
+                  return (
+                    <tr key={t.id} className="hover:bg-line/4">
+                      <td className="max-w-xs px-4 py-3">
+                        <div className="truncate font-semibold">{t.title}</div>
+                        <div className="mt-0.5 flex items-center gap-1.5">
+                          <Badge className={PLATFORM_STYLE[t.platform]}>
+                            {PLATFORM_LABEL[t.platform]}
+                          </Badge>
+                          {t.archived_at && (
+                            <Badge className="bg-muted/15 text-muted">ĐÃ ẨN</Badge>
+                          )}
+                        </div>
+                      </td>
+                      <td className="money px-4 py-3 font-bold text-money">
+                        {formatVnd(t.price_vnd)}
+                      </td>
+                      <td className="money px-4 py-3">
+                        {t.taken_count}/{t.quantity}
+                      </td>
+                      <td className="px-4 py-3">
+                        <span
+                          className={cx(
+                            'text-xs font-bold',
+                            t.archived_at
+                              ? 'text-muted'
+                              : t.remaining > 0
+                                ? 'text-accent'
+                                : 'text-warn',
+                          )}
+                        >
+                          {t.archived_at ? 'Đã ẩn' : t.remaining > 0 ? 'Đang mở' : 'Đã đóng'}
+                        </span>
+                      </td>
+                      <td className="px-4 py-3">
+                        <div className="flex justify-end gap-1.5">
+                          <Button size="sm" variant="outline" onClick={() => open(t)}>
+                            Sửa
+                          </Button>
+                          {!t.archived_at && (
+                            <Button size="sm" variant="subtle" onClick={() => toggleClose(t)}>
+                              {t.remaining > 0 ? 'Đóng' : 'Mở lại'}
+                            </Button>
+                          )}
+                          <Button size="sm" variant="subtle" onClick={() => toggleArchive(t)}>
+                            {t.archived_at ? 'Bỏ ẩn' : 'Ẩn'}
+                          </Button>
+                          {!taken && !t.archived_at && (
+                            <Button size="sm" variant="ghost" onClick={() => del(t)}>
+                              Xoá
+                            </Button>
+                          )}
+                        </div>
+                      </td>
+                    </tr>
+                  )
+                })}
+              </tbody>
+            </table>
+          </Card>
+
+          {/* Card — cho điện thoại */}
+          <div className="space-y-3 md:hidden">
+            {list.map((t) => {
+              const taken = (t.sub_count ?? 0) > 0
+              return (
+                <Card key={t.id} className={cx('p-4', t.archived_at && 'opacity-70')}>
+                  <div className="mb-2 flex flex-wrap items-center gap-1.5">
+                    <Badge className={PLATFORM_STYLE[t.platform]}>
+                      {PLATFORM_LABEL[t.platform]}
+                    </Badge>
+                    {t.priority === 'hot' && (
+                      <Badge className="bg-danger/15 text-danger">🔥 ƯU TIÊN</Badge>
+                    )}
+                    <Badge
+                      className={
+                        t.archived_at
+                          ? 'bg-muted/15 text-muted'
+                          : t.remaining > 0
+                            ? 'bg-accent/15 text-accent'
+                            : 'bg-warn/15 text-warn'
+                      }
+                    >
+                      {t.archived_at
+                        ? 'Đã ẩn'
+                        : t.remaining > 0
+                          ? `Còn ${t.remaining} lượt`
+                          : 'Đã đóng'}
+                    </Badge>
+                  </div>
+                  <h3 className="text-sm leading-snug font-bold">{t.title}</h3>
+                  <div className="mt-2 flex items-center justify-between">
+                    <span className="money text-money text-lg font-bold">
+                      {formatVnd(t.price_vnd)}
+                    </span>
+                    <span className="money text-xs text-muted">
+                      {t.taken_count}/{t.quantity} lượt
+                    </span>
+                  </div>
+
+                  <div className="mt-3 flex flex-wrap gap-2">
+                    <Button size="md" variant="outline" className="flex-1" onClick={() => open(t)}>
+                      Sửa
+                    </Button>
+                    {!t.archived_at && (
+                      <Button size="md" variant="subtle" className="flex-1" onClick={() => toggleClose(t)}>
+                        {t.remaining > 0 ? 'Đóng' : 'Mở lại'}
+                      </Button>
+                    )}
+                    <Button size="md" variant="subtle" className="flex-1" onClick={() => toggleArchive(t)}>
+                      {t.archived_at ? 'Bỏ ẩn' : 'Ẩn'}
+                    </Button>
+                    {!taken && !t.archived_at && (
+                      <Button size="md" variant="ghost" onClick={() => del(t)}>
+                        Xoá
+                      </Button>
+                    )}
+                  </div>
+
+                  {taken && !t.archived_at && (
+                    <p className="mt-2.5 text-[11px] leading-snug text-muted">
+                      Đã có {t.sub_count} lượt được nhận nên không xoá hẳn được — dùng{' '}
+                      <b>Ẩn</b> để gỡ khỏi danh sách, lịch sử vẫn giữ nguyên.
+                    </p>
+                  )}
+                </Card>
+              )
+            })}
+          </div>
+        </>
+      )}
+
+      {/* Form */}
+      <Modal
+        open={!!editing}
+        onClose={() => setEditing(null)}
+        wide
+        title={editing === 'new' ? 'Đăng nhiệm vụ mới' : 'Sửa nhiệm vụ'}
+        footer={
+          <>
+            <Button variant="outline" onClick={() => setEditing(null)}>
+              Huỷ
+            </Button>
+            <Button loading={busy} onClick={save}>
+              {editing === 'new' ? 'Đăng lên trang chủ' : 'Lưu thay đổi'}
+            </Button>
+          </>
+        }
+      >
+        <div className="space-y-4">
+          <Field label="Tiêu đề" required error={errs.title}>
+            <Input
+              value={form.title}
+              onChange={(e) => setForm({ ...form, title: e.target.value })}
+              invalid={!!errs.title}
+              placeholder="Vượt video YouTube — kênh ABC"
+            />
+          </Field>
+
+          <Field label="Mô tả" hint="Hướng dẫn cụ thể cho người nhận nhiệm vụ">
+            <Textarea
+              rows={3}
+              value={form.description}
+              onChange={(e) => setForm({ ...form, description: e.target.value })}
+              placeholder="Xem hết video, không tắt quảng cáo…"
+            />
+          </Field>
+
+          <Field
+            label="Link cần vượt"
+            required={editing === 'new'}
+            error={errs.target_url}
+            hint={
+              editing === 'new'
+                ? 'Chỉ hiện với người đã nhận nhiệm vụ.'
+                : 'Để trống nếu không muốn đổi link.'
+            }
+          >
+            <Input
+              value={form.target_url}
+              onChange={(e) => setForm({ ...form, target_url: e.target.value })}
+              invalid={!!errs.target_url}
+              placeholder="https://youtube.com/watch?v=…"
+              inputMode="url"
+            />
+          </Field>
+
+          <div className="grid gap-4 sm:grid-cols-2">
+            <Field label="Nền tảng">
+              <Select
+                value={form.platform}
+                onChange={(e) => setForm({ ...form, platform: e.target.value as Platform })}
+              >
+                {PLATFORMS.map((p) => (
+                  <option key={p} value={p}>
+                    {PLATFORM_LABEL[p]}
+                  </option>
+                ))}
+              </Select>
+            </Field>
+
+            <Field
+              label="Thưởng mỗi lượt (VND)"
+              required
+              error={errs.price}
+              hint={`${formatVnd(MIN_PRICE)} – ${formatVnd(MAX_PRICE)}`}
+            >
+              <Input
+                value={form.price}
+                onChange={(e) =>
+                  setForm({ ...form, price: stripSeparators(e.target.value).slice(0, 9) })
+                }
+                invalid={!!errs.price}
+                placeholder="5000"
+                inputMode="numeric"
+                className="money font-bold"
+              />
+            </Field>
+
+            <Field label="Số lượt cần" required error={errs.quantity}>
+              <Input
+                value={form.quantity}
+                onChange={(e) =>
+                  setForm({ ...form, quantity: stripSeparators(e.target.value).slice(0, 5) })
+                }
+                invalid={!!errs.quantity}
+                inputMode="numeric"
+                className="money"
+              />
+            </Field>
+
+            <Field label="Hạn nộp" hint="Để trống = không hạn">
+              <Input
+                type="datetime-local"
+                value={form.deadline}
+                onChange={(e) => setForm({ ...form, deadline: e.target.value })}
+              />
+            </Field>
+          </div>
+
+          <Field label="Mức ưu tiên">
+            <Select
+              value={form.priority}
+              onChange={(e) => setForm({ ...form, priority: e.target.value as 'normal' | 'hot' })}
+            >
+              <option value="normal">Bình thường</option>
+              <option value="hot">Ưu tiên cao</option>
+            </Select>
+          </Field>
+        </div>
+      </Modal>
+    </div>
+  )
+}

@@ -1,0 +1,58 @@
+/**
+ * TIỀN — chỉ dùng số nguyên.
+ * VND không có phần thập phân, nên tuyệt đối không dùng float/number phân số.
+ * Mọi giá trị đi qua đây trước khi hiển thị hoặc gửi lên server.
+ */
+
+const nf = new Intl.NumberFormat('vi-VN', { maximumFractionDigits: 0 })
+
+/** 5000 → "5.000" */
+export function formatNumber(n: number | string): string {
+  const v = typeof n === 'string' ? Number(n) : n
+  if (!Number.isFinite(v)) return '0'
+  return nf.format(Math.trunc(v))
+}
+
+/** 5000 → "5.000 ₫" */
+export function formatVnd(n: number | string): string {
+  return `${formatNumber(n)} ₫`
+}
+
+/** 5000 → "5.000" (không ký hiệu, dùng cho ô nhập) */
+export function plain(n: number): string {
+  return nf.format(Math.trunc(n))
+}
+
+export const MIN_PRICE = 1_000
+export const MAX_PRICE = 10_000_000
+
+/**
+ * Chấp nhận "5.000", "5000", "5 000", "5,000", "5.000đ"
+ * Trả về null nếu không phải số hợp lệ.
+ */
+export function parseVnd(input: string): number | null {
+  if (typeof input !== 'string') return null
+  const cleaned = input.replace(/[^\d]/g, '')
+  if (!cleaned) return null
+  const n = Number(cleaned)
+  if (!Number.isSafeInteger(n)) return null
+  return n
+}
+
+export function isValidPrice(input: string): boolean {
+  const n = parseVnd(input)
+  return n !== null && n >= MIN_PRICE && n <= MAX_PRICE
+}
+
+export function priceHint(): string {
+  return `Từ ${formatVnd(MIN_PRICE)} đến ${formatVnd(MAX_PRICE)} mỗi lượt`
+}
+
+export function validateQuantity(n: number): boolean {
+  return Number.isInteger(n) && n >= 1 && n <= 10_000
+}
+
+/** Chuẩn hoá người dùng nhập: bỏ dấu chấm, chỉ giữ số */
+export function stripSeparators(input: string): string {
+  return input.replace(/[^\d]/g, '')
+}
