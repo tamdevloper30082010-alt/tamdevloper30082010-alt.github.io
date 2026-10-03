@@ -122,6 +122,27 @@ export SUPABASE_ACCESS_TOKEN=sbp_...
 Lệnh này nâng role của đúng một tài khoản và ghi vào nhật ký kiểm toán. Từ đó, admin
 có thể cấp/thu quyền cho người khác ngay trong trang quản trị.
 
+## Số dư âm và bù nợ
+
+Admin trừ được số dư bằng số âm — ví dụ khi người dùng hoàn tiền sai, dùng thẻ
+nạp đã tiêu, hay nợ từ hệ thống cũ. Sổ cái **không đổi**: vẫn chỉ là một dòng
+`adjustment` âm, không có cột "số dư" nào bị sửa tay.
+
+Khi số dư âm, tài khoản **không rút được** cho tới khi kiếm nhiệm vụ bù về 0:
+
+- `create_withdrawal_request` chặn với thông báo nói đúng việc cần làm
+  ("Bạn đang nợ X ₫. Hãy nhận và hoàn thành nhiệm vụ để kiếm bù về 0…"), thay vì
+  "số dư không đủ" — hai lời nhắc này dẫn người dùng đi hai hướng khác nhau.
+- Ví và trang rút tiền hiện thẻ đỏ kèm số tiền còn nợ và nút dẫn thẳng sang
+  trang nhiệm vụ.
+- Ô điều chỉnh của admin có nút **+ Cộng / − Trừ**: bàn phím điện thoại không có
+  phím "−" nên không thể trông chờ người dùng gõ tay. Trước khi đẩy tài khoản
+  xuống dưới 0 có hộp xác nhận, và hiện sẵn số dư sau khi điều chỉnh — sổ cái là
+  append-only nên ghi sai không sửa được, chỉ tạo được dòng điều chỉnh ngược lại.
+
+Số dư âm không tự động bị chặn nhận nhiệm vụ: người dùng cần làm việc để bù là đúng
+ý bạn.
+
 ## Rút tiền
 
 Ba phương thức, người nhận chọn ở tab **Rút tiền**:
@@ -188,6 +209,7 @@ scripts/verify-admin.mjs  kiểm tra không ai tự phong quyền được
 scripts/test-withdraw.mjs bộ test riêng cho rút tiền (64 phép)
 scripts/test-archive.mjs  bộ test ẩn/xoá nhiệm vụ (20 phép)
 scripts/test-evidence.mjs bộ test loại nhiệm vụ + ảnh thành quả (41 phép)
+scripts/test-debt.mjs     bộ test điều chỉnh số dư âm + bù nợ (27 phép)
 scripts/reset-test-data.sql dọn dữ liệu test
 src/lib/money.ts         tiền — chỉ số nguyên, VND không có phần thập phân
 src/lib/supabase.ts      client + cách rút thông điệp lỗi tiếng Việt từ DB

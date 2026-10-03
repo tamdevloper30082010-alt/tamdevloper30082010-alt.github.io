@@ -501,6 +501,77 @@ create policy evidence_delete on storage.objects
   );
 
 -- ────────────────────────────────────────────────────────────────────────────
+-- 6b. SỐ DƯ ÂM — CẤM RÚT CHO TỚI KHI BÙ VỀ 0
+--
+--  Admin có thể trừ số dư xuống dưới 0 (đòi nợ khi người dùng hoàn sai,
+--  dùng thẻ đã tiêu…). Từ đó người dùng KHÔNG rút được cho tới khi kiếm
+--  nhiệm vụ bù về 0. Sổ cái không đổi: vẫn chỉ là cột adjustment âm.
+--
+--  Lưu ý khi sửa hàm này: PHẢI GIỮ NGUYÊN phần `default ''` cho 7 tham số
+--  sau p_amount_vnd. Bỏ default là PostgREST không còn tra được hàm khi
+--  client gọi thiếu tham số → mọi yêu cầu rút tiền trả về PGRST202.
+-- ────────────────────────────────────────────────────────────────────────────
+
+drop function if exists public.create_withdrawal_request(text,bigint,text,text,text,text,text,text,text);
+
+create or replace function public.create_withdrawal_request(
+  p_method text, p_amount_vnd bigint,
+  p_bank_code text default '', p_bank_holder text default '', p_bank_number text default '',
+  p_game_platform text default '', p_game_account_id text default '',
+  p_card_brand text default '',
+  p_note text default ''
+) returns uuid language plpgsql security definer set search_path = public, pg_temp as $$
+declare v_id uuid; v_balance bigint;
+begin
+  if auth.uid() is null then raise exception 'Chưa đăng nhập.'; end if;
+  if p_method not in ('bank','game','card') then raise exception 'Phương thức rút không hợp lệ.'; end if;
+  if p_amount_vnd is null or p_amount_vnd <= 0 then raise exception 'Số tiền rút không hợp lệ.'; end if;
+  if p_method = 'bank' and p_amount_vnd < 10000 then
+    raise exception 'Rút chuyển khoản tối thiểu 10.000 ₫.';
+  end if;
+
+  -- khoá dòng profile trước khi đọc số dư → các yêu cầu xếp hàng,
+  -- không ai rút được vượt số dư dù gửi cùng lúc bao nhiêu lần
+  perform 1 from public.profiles where id = auth.uid() for update;
+  select coalesce(sum(amount_vnd), 0) into v_balance
+    from public.transactions where user_id = auth.uid();
+
+  -- Âm là "đang nợ": phải báo đúng tình huống, không phải "số dư không đủ",
+  -- vì hai lỗi này dẫn người dùng đi hai hướng khác nhau (bù nợ vs kiếm thêm).
+  if v_balance <= 0 then
+    raise exception 'Bạn đang nợ % ₫. Hãy nhận và hoàn thành nhiệm vụ để kiếm bù về 0 trước khi rút tiền.', -v_balance;
+  end if;
+  if p_amount_vnd > v_balance then
+    raise exception 'Số dư không đủ. Bạn đang có % ₫.', v_balance;
+  end if;
+
+  insert into public.withdrawal_requests
+    (user_id, method, amount_vnd, bank_code, bank_holder, bank_number,
+     game_platform, game_account_id, card_brand, note)
+  values
+    (auth.uid(), p_method, p_amount_vnd, left(trim(coalesce(p_bank_code,'')),20),
+     left(trim(coalesce(p_bank_holder,'')),80), left(trim(coalesce(p_bank_number,'')),34),
+     left(trim(coalesce(p_game_platform,'')),40), left(trim(coalesce(p_game_account_id,'')),40),
+     left(trim(coalesce(p_card_brand,'')),40), left(coalesce(p_note,''),300))
+  returning id into v_id;
+
+  insert into public.transactions (user_id, amount_vnd, type, ref_id, note)
+  values (auth.uid(), -p_amount_vnd, 'withdraw_request', v_id,
+    case p_method
+      when 'bank' then 'Rút tiền về ngân hàng'
+      when 'game' then 'Nạp trực tiếp vào ' || p_game_platform
+      else 'Rút thẻ cào ' || p_card_brand
+    end);
+
+  perform public.log_audit('create_withdrawal','withdrawal', v_id,
+    jsonb_build_object('amount_vnd', p_amount_vnd, 'method', p_method));
+  return v_id;
+end $$;
+
+revoke all on function public.create_withdrawal_request(text,bigint,text,text,text,text,text,text,text) from public, anon;
+grant execute on function public.create_withdrawal_request(text,bigint,text,text,text,text,text,text,text) to authenticated;
+
+-- ────────────────────────────────────────────────────────────────────────────
 -- 7. VIEW + QUYỀN GỌI
 -- ────────────────────────────────────────────────────────────────────────────
 
@@ -568,3 +639,8 @@ grant execute on function public.admin_evidence_orphans()            to authenti
 --  Ảnh tồn trong bucket (nếu có từ lần thử trước) — xoá thủ công:
 --    select storage.delete_object('task-evidence', name) from storage.objects
 --     where bucket_id = 'task-evidence';
+
+-- Hàm đổi chữ ký ⇒ PostgREST vẫn giữ cache cũ và trả PGRST202 cho mọi lời
+-- gọi RPC. Bắn NOTIFY để nó nạp lại ngay (Supabase cũng tự reload theo chu kỳ,
+-- nhưng đợi chu kỳ thì trang rút tiền hỏng tới lúc đó).
+notify pgrst, 'reload schema';

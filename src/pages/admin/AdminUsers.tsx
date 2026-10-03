@@ -1,4 +1,4 @@
-import { useCallback, useEffect, useState } from 'react'
+import { useCallback, useEffect, useMemo, useState } from 'react'
 import { useAuth } from '../../hooks/auth'
 import { useToast } from '../../components/Toast'
 import {
@@ -11,9 +11,10 @@ import {
   Modal,
   Spinner,
   Textarea,
+  cx,
 } from '../../components/ui'
 import { supabase, errMessage } from '../../lib/supabase'
-import { formatVnd, stripSeparators } from '../../lib/money'
+import { formatVnd, parseSignedVnd } from '../../lib/money'
 import type { Profile, Wallet } from '../../lib/types'
 
 type Mode = 'adjust' | 'payout' | null
@@ -30,6 +31,7 @@ export default function AdminUsers() {
   const [target, setTarget] = useState<Profile | null>(null)
   const [mode, setMode] = useState<Mode>(null)
   const [amount, setAmount] = useState('')
+  const [sign, setSign] = useState<'1' | '-1'>('1')
   const [note, setNote] = useState('')
   const [formErr, setFormErr] = useState('')
 
@@ -58,13 +60,36 @@ export default function AdminUsers() {
     void load()
   }
 
+  /** Ô nhập chỉ chứa số; dấu do nút bấm quyết định (bàn phím điện thoại không có phím −). */
+  const amountValue = useMemo(() => {
+    const n = parseSignedVnd(amount)
+    return n === null ? 0 : n
+  }, [amount])
+
+  const projected =
+    target && mode === 'adjust'
+      ? (wallets[target.id]?.balance_vnd ?? 0) + amountValue
+      : null
+
   const submitMoney = async () => {
     if (!target || !mode) return
-    const n = Number(stripSeparators(amount))
+    const n = mode === 'adjust' ? amountValue * Number(sign) : amountValue
     if (!Number.isSafeInteger(n) || n === 0) return setFormErr('Nhập số tiền hợp lệ.')
     if (mode === 'payout' && n <= 0) return setFormErr('Số tiền rút phải lớn hơn 0.')
     if (mode === 'adjust' && note.trim().length < 3)
       return setFormErr('Phải nêu lý do điều chỉnh (tối thiểu 3 ký tự).')
+
+    // Sổ cái là append-only: ghi sai thì không sửa được, chỉ tạo dòng điều
+    // chỉnh ngược lại. Nên hỏi lại trước khi đẩy tài khoản xuống dưới 0.
+    if (mode === 'adjust' && projected !== null && projected < 0) {
+      const ok = confirm(
+        `Số dư của ${target.full_name || target.email} sẽ thành ` +
+          `${formatVnd(projected)} (đang âm).\n\n` +
+          `Từ giờ tới khi kiếm nhiệm vụ bù về 0, tài khoản này KHÔNG rút được tiền.\n\n` +
+          `Xác nhận?`,
+      )
+      if (!ok) return
+    }
 
     setBusy(target.id)
     const { error } =
@@ -85,6 +110,7 @@ export default function AdminUsers() {
     setMode(null)
     setTarget(null)
     setAmount('')
+    setSign('1')
     setNote('')
     setFormErr('')
     void load()
@@ -94,6 +120,7 @@ export default function AdminUsers() {
     setTarget(p)
     setMode(m)
     setAmount('')
+    setSign('1')
     setNote('')
     setFormErr('')
   }
@@ -198,7 +225,12 @@ export default function AdminUsers() {
       >
         <p className="text-sm text-muted">
           {target?.email} — số dư hiện tại{' '}
-          <b className="money text-money">
+          <b
+            className={cx(
+              'money',
+              (wallets[target?.id ?? '']?.balance_vnd ?? 0) < 0 ? 'text-danger' : 'text-money',
+            )}
+          >
             {formatVnd(wallets[target?.id ?? '']?.balance_vnd ?? 0)}
           </b>
         </p>
@@ -207,16 +239,67 @@ export default function AdminUsers() {
           <Field
             label={mode === 'payout' ? 'Số tiền đã chuyển khoản (VND)' : 'Số tiền điều chỉnh (VND)'}
             required
-            hint={mode === 'adjust' ? 'Dùng số âm để trừ, ví dụ -50000' : undefined}
+            hint={
+              mode === 'adjust'
+                ? 'Bấm − để trừ nợ, + để cộng. Ô nhập chỉ nhận số.'
+                : undefined
+            }
           >
+            {mode === 'adjust' && (
+              <div className="mb-2 flex gap-1.5">
+                {(['1', '-1'] as const).map((sg) => (
+                  <button
+                    key={sg}
+                    type="button"
+                    onClick={() => {
+                      setSign(sg)
+                      setFormErr('')
+                    }}
+                    className={`h-9 cursor-pointer rounded-lg px-5 text-sm font-bold transition-all ${
+                      sign === sg
+                        ? 'bg-accent text-black'
+                        : 'bg-line/8 text-muted hover:text-fg'
+                    }`}
+                  >
+                    {sg === '1' ? '+ Cộng' : '− Trừ'}
+                  </button>
+                ))}
+              </div>
+            )}
             <Input
               value={amount}
-              onChange={(e) => setAmount(stripSeparators(e.target.value).slice(0, 12))}
+              onChange={(e) => {
+                // Ô chỉ nhận số; dấu do nút bấm quyết định. Bàn phím điện
+                // thoại không có phím "−" nên không thể trông chờ người dùng gõ.
+                const digits = e.target.value.replace(/[^\d]/g, '').slice(0, 12)
+                setAmount(digits)
+                setFormErr('')
+              }}
               placeholder={mode === 'payout' ? '100000' : '50000'}
               inputMode="numeric"
               className="money font-bold"
             />
           </Field>
+
+          {mode === 'adjust' && projected !== null && amountValue !== 0 && (
+            <div
+              className={`rounded-xl border px-3.5 py-2.5 text-[13px] ${
+                projected < 0
+                  ? 'border-danger/40 bg-danger/10 text-danger'
+                  : 'border-line/12 bg-line/5 text-muted'
+              }`}
+            >
+              Số dư sau khi điều chỉnh:{' '}
+              <b className="money text-fg">
+                {formatVnd(projected)}
+              </b>
+              {projected < 0 && (
+                <span className="mt-1 block font-semibold">
+                  Tài khoản này sẽ không rút được tiền cho tới khi làm nhiệm vụ bù về 0.
+                </span>
+              )}
+            </div>
+          )}
 
           <Field
             label="Ghi chú"

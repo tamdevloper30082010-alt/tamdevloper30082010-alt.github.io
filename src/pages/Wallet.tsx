@@ -51,6 +51,8 @@ export default function WalletPage() {
   if (!session) return <Empty title="Bạn chưa đăng nhập" hint="Đăng nhập để xem ví tiền." />
   if (loading) return <Spinner label="Đang tải ví…" />
 
+  const balance = wallet?.balance_vnd ?? 0
+
   return (
     <div className="space-y-6">
       <div>
@@ -60,23 +62,44 @@ export default function WalletPage() {
         </p>
       </div>
 
-      <Card className="from-money/12 to-accent/8 border-money/25 bg-gradient-to-br p-6">
+      <Card
+        className={cx(
+          'bg-gradient-to-br p-6',
+          balance < 0 ? 'border-danger/35 from-danger/12 to-danger/6' : 'from-money/12 to-accent/8 border-money/25',
+        )}
+      >
         <div className="text-[11px] font-bold tracking-wider text-muted uppercase">
           Số dư hiện tại
         </div>
         <div
           className={cx(
             'money mt-1 text-4xl font-bold',
-            (wallet?.balance_vnd ?? 0) > 0 ? 'text-money' : 'text-muted',
+            balance < 0 ? 'text-danger' : balance > 0 ? 'text-money' : 'text-muted',
           )}
         >
-          {formatVnd(wallet?.balance_vnd ?? 0)}
+          {formatVnd(balance)}
         </div>
-        {(wallet?.balance_vnd ?? 0) < 0 && (
-          <p className="mt-2 text-xs font-semibold text-danger">
-            ⚠ Số dư âm — quản trị viên cần điều chỉnh.
+        {balance < 0 ? (
+          <div className="mt-3 rounded-xl border border-danger/35 bg-danger/10 p-3.5">
+            <div className="text-[11px] font-bold tracking-wider text-danger uppercase">
+              ⚠ Bạn đang nợ {formatVnd(Math.abs(balance))}
+            </div>
+            <p className="mt-1.5 text-[13px] leading-relaxed font-medium">
+              Bạn cần kiếm thêm <b className="money">{formatVnd(Math.abs(balance))}</b> qua
+              nhiệm vụ để đưa số dư về 0. Chỉ khi số dư dương bạn mới rút được tiền.
+            </p>
+            <Link
+              to="/"
+              className="mt-2.5 inline-flex items-center gap-1.5 rounded-lg bg-danger px-3.5 py-2 text-sm font-bold text-white transition-all hover:brightness-110"
+            >
+              Đi làm nhiệm vụ bù nợ →
+            </Link>
+          </div>
+        ) : balance === 0 ? (
+          <p className="mt-2 text-xs font-semibold text-muted">
+            Số dư bằng 0 — rút tiền cần ít nhất 10.000 ₫. Nhận nhiệm vụ để kiếm thêm nhé.
           </p>
-        )}
+        ) : null}
       </Card>
 
       <div className="grid gap-3 sm:grid-cols-2 lg:grid-cols-4">
@@ -92,11 +115,20 @@ export default function WalletPage() {
 
       <Link
         to="/rut-tien"
-        className="border-accent/30 bg-accent/8 hover:bg-accent/14 block rounded-2xl border p-4 transition-colors"
+        className={cx(
+          'block rounded-2xl border p-4 transition-colors',
+          balance < 0
+            ? 'border-danger/25 bg-danger/8 hover:bg-danger/12'
+            : 'border-accent/30 bg-accent/8 hover:bg-accent/14',
+        )}
       >
         <div className="flex items-center justify-between">
-          <span className="text-sm font-semibold">⇩ Rút tiền về ngân hàng hoặc nhận thẻ nạp</span>
-          <span className="text-accent">→</span>
+          <span className="text-sm font-semibold">
+            {balance < 0
+              ? '⛔ Chưa thể rút — hãy kiếm bù số dư âm trước'
+              : '⇩ Rút tiền về ngân hàng hoặc nhận thẻ nạp'}
+          </span>
+          <span className={balance < 0 ? 'text-danger' : 'text-accent'}>→</span>
         </div>
       </Link>
 

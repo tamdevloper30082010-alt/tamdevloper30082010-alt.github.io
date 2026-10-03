@@ -56,3 +56,30 @@ export function validateQuantity(n: number): boolean {
 export function stripSeparators(input: string): string {
   return input.replace(/[^\d]/g, '')
 }
+
+/**
+ * Cùng stripSeparators nhưng GIỮ dấu âm ở đầu.
+ *
+ * Cần cho ô "điều chỉnh số dư": bỏ hết ký tự không phải số thì dấu "-" cũng
+ * biến mất, biến tính năng trừ nợ thành chỉ có thể cộng. Dấu chỉ có ý nghĩa
+ * ở vị trí đầu, nên "-abc" → "-", "abc-5" → "5", "--5" → "-5".
+ */
+export function stripSignedSeparators(input: string): string {
+  const digits = input.replace(/[^\d]/g, '')
+  // Chỉ giữ dấu âm nếu nó nằm ở đầu, phía trước không có chữ hay số khác
+  return /^\s*-/.test(input) ? `-${digits}` : digits
+}
+
+/** "-50.000" → -50000. Trả null nếu không phải số hợp lệ. */
+export function parseSignedVnd(input: string): number | null {
+  const cleaned = stripSignedSeparators(input)
+  if (!cleaned || cleaned === '-') return null
+  const n = Number(cleaned)
+  if (!Number.isSafeInteger(n)) return null
+  return n
+}
+
+/** Đọc số có dấu để hiển thị, ví dụ cột số dư. */
+export function signedVnd(n: number): string {
+  return n < 0 ? `−${formatNumber(Math.abs(n))}` : formatNumber(n)
+}

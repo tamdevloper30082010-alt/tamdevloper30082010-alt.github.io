@@ -1248,6 +1248,11 @@ begin
   perform 1 from public.profiles where id = auth.uid() for update;
   select coalesce(sum(amount_vnd), 0) into v_balance
     from public.transactions where user_id = auth.uid();
+  -- Âm là "đang nợ": phải báo đúng tình huống, không phải "số dư không đủ",
+  -- vì hai lỗi này dẫn người dùng đi hai hướng khác nhau (bù nợ vs kiếm thêm).
+  if v_balance <= 0 then
+    raise exception 'Bạn đang nợ % ₫. Hãy nhận và hoàn thành nhiệm vụ để kiếm bù về 0 trước khi rút tiền.', -v_balance;
+  end if;
   if p_amount_vnd > v_balance then
     raise exception 'Số dư không đủ. Bạn đang có % ₫.', v_balance;
   end if;
