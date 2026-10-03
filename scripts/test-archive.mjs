@@ -81,7 +81,7 @@ const wk = await login(mail('w'))
 const newTask = async (qty = 3) => {
   const r = await adm.rpc('admin_create_task', {
     p_title: `Nhiệm vụ thử ${SUF}`, p_description: '', p_target_url: TARGET,
-    p_platform: 'youtube', p_price_vnd: 5000, p_quantity: qty,
+    p_task_type: 'link', p_price_vnd: 5000, p_quantity: qty,
     p_deadline_at: null, p_priority: 'normal',
   })
   if (r.error) throw new Error(r.error.message)
@@ -110,7 +110,7 @@ check('Admin vẫn thấy nhiệm vụ ở trang quản trị', !!adminView)
 // Còn lượt thì bấm "Đóng" cũng phải biến mất khỏi bảng tin
 await adm.rpc('admin_update_task', {
   p_task_id: t1, p_title: 'Nhiệm vụ thử', p_description: '', p_target_url: null,
-  p_platform: 'youtube', p_price_vnd: 5000, p_quantity: 3,
+  p_task_type: 'link', p_price_vnd: 5000, p_quantity: 3,
   p_deadline_at: null, p_priority: 'normal', p_status: 'closed',
 })
 const { data: board3 } = await wk.from('v_tasks').select('*').eq('id', t1).maybeSingle()

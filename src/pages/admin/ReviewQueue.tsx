@@ -1,14 +1,57 @@
 import { useCallback, useEffect, useState } from 'react'
 import { useToast } from '../../components/Toast'
-import { Badge, Button, Card, Empty, Field, Modal, Spinner, Textarea } from '../../components/ui'
+import { Badge, Button, Card, Empty, Field, Modal, Spinner, Textarea, cx } from '../../components/ui'
 import { supabase, errMessage } from '../../lib/supabase'
 import { formatVnd } from '../../lib/money'
+import { evidenceUrl, removeEvidence } from '../../lib/proof'
 import {
-  PLATFORM_LABEL,
-  PLATFORM_STYLE,
+  TASK_TYPE_LABEL,
+  TASK_TYPE_STYLE,
   type Profile,
   type Submission,
 } from '../../lib/types'
+
+/** Xem ảnh trước khi duyệt — bucket private nên phải xin link có chữ ký. */
+function EvidenceBox({ path }: { path: string }) {
+  const [url, setUrl] = useState<string | null>(null)
+  const [failed, setFailed] = useState(false)
+
+  useEffect(() => {
+    let alive = true
+    void evidenceUrl(path).then((u) => {
+      if (!alive) return
+      setUrl(u)
+      if (!u) setFailed(true)
+    })
+    return () => {
+      alive = false
+    }
+  }, [path])
+
+  if (failed)
+    return (
+      <p className="rounded-lg border border-danger/35 bg-danger/10 px-3 py-2.5 text-[13px] font-medium text-danger">
+        Không mở được ảnh — link chữ ký hết hạn hoặc ảnh đã bị xoá. Tải lại trang thử lại.
+      </p>
+    )
+  if (!url) return <div className="h-40 animate-pulse rounded-xl bg-line/8" />
+
+  return (
+    <a
+      href={url}
+      target="_blank"
+      rel="noopener noreferrer"
+      className={cx('block overflow-hidden rounded-xl border border-accent/25')}
+    >
+      <img
+        src={url}
+        alt="Ảnh thành quả"
+        loading="lazy"
+        className="max-h-80 w-full cursor-zoom-in bg-black/30 object-contain"
+      />
+    </a>
+  )
+}
 
 export default function ReviewQueue() {
   const toast = useToast()
@@ -16,6 +59,7 @@ export default function ReviewQueue() {
   const [people, setPeople] = useState<Record<string, Profile>>({})
   const [loading, setLoading] = useState(true)
   const [busy, setBusy] = useState<string | null>(null)
+  const [purging, setPurging] = useState(false)
   const [rejecting, setRejecting] = useState<Submission | null>(null)
   const [reason, setReason] = useState('')
   const [reasonErr, setReasonErr] = useState('')
@@ -52,15 +96,51 @@ export default function ReviewQueue() {
 
   const approve = async (s: Submission) => {
     setBusy(s.id)
-    const { error } = await supabase.rpc('admin_review_submission', {
+    // RPC trả về đường dẫn ảnh cần dọn (rỗng nếu nhiệm vụ vượt link).
+    const { data, error } = await supabase.rpc('admin_review_submission', {
       p_submission_id: s.id,
       p_approve: true,
       p_note: '',
     })
+    if (error) {
+      setBusy(null)
+      return toast(errMessage(error), 'err')
+    }
+
+    // Ảnh đã duyệt là đồ rác — xoá ngay để không phí dung lượng Storage.
+    let purged = true
+    if (data) purged = await removeEvidence(data as string)
+
     setBusy(null)
-    if (error) return toast(errMessage(error), 'err')
-    toast(`Đã duyệt và cộng ${formatVnd(s.price_vnd)} vào ví.`, 'ok')
+    toast(
+      purged
+        ? `Đã duyệt và cộng ${formatVnd(s.price_vnd)} vào ví. Ảnh thành quả đã được xoá.`
+        : `Đã duyệt ${formatVnd(s.price_vnd)}. Xoá ảnh bị lỗi mạng — bấm “Dọn ảnh tồn” để xoá nốt.`,
+      purged ? 'ok' : 'info',
+    )
     void load()
+  }
+
+  /**
+   * Dọn ảnh còn sót: mỗi lần duyệt có ghi đường dẫn ảnh vào audit_log, nên kể cả
+   * phiên đăng nhập bị tắt giữa chừng thì vẫn quét lại được. Xoá file đã
+   * không tồn tại là thành công — chạy lại bao nhiêu lần cũng an toàn.
+   */
+  const purgeOrphans = async () => {
+    setPurging(true)
+    const { data, error } = await supabase.rpc('admin_evidence_orphans')
+    if (error) {
+      setPurging(false)
+      return toast(errMessage(error), 'err')
+    }
+    const paths = (data as string[] | null) ?? []
+    if (!paths.length) {
+      setPurging(false)
+      return toast('Không còn ảnh tồn nào.', 'info')
+    }
+    const ok = (await Promise.all(paths.map(removeEvidence))).filter(Boolean).length
+    setPurging(false)
+    toast(`Đã dọn ${ok}/${paths.length} ảnh tồn.`, ok === paths.length ? 'ok' : 'info')
   }
 
   const doReject = async () => {
@@ -100,6 +180,15 @@ export default function ReviewQueue() {
             <div className="text-xs text-muted">{subs.length} lượt đang chờ</div>
           </div>
         )}
+        <Button
+          size="sm"
+          variant="subtle"
+          loading={purging}
+          onClick={purgeOrphans}
+          title="Xoá các ảnh thành quả còn sót trong kho"
+        >
+          🧹 Dọn ảnh tồn
+        </Button>
       </div>
 
       {subs.length === 0 ? (
@@ -113,8 +202,8 @@ export default function ReviewQueue() {
                 <div className="flex flex-wrap items-start justify-between gap-3">
                   <div className="min-w-0 flex-1">
                     <div className="mb-1.5 flex flex-wrap items-center gap-1.5">
-                      <Badge className={PLATFORM_STYLE[s.platform]}>
-                        {PLATFORM_LABEL[s.platform]}
+                      <Badge className={TASK_TYPE_STYLE[s.task_type]}>
+                        {TASK_TYPE_LABEL[s.task_type]}
                       </Badge>
                       <span className="truncate text-xs text-muted">
                         {who?.full_name || who?.email || 'Không rõ người gửi'}
@@ -127,19 +216,31 @@ export default function ReviewQueue() {
                   </div>
                 </div>
 
-                <div className="mt-3">
-                  <div className="mb-1 text-[10px] font-bold tracking-wider text-muted uppercase">
-                    Link thành quả
+                {s.evidence_path ? (
+                  <div className="mt-3">
+                    <div className="mb-1 text-[10px] font-bold tracking-wider text-muted uppercase">
+                      Ảnh thành quả
+                    </div>
+                    <EvidenceBox path={s.evidence_path} />
+                    <p className="mt-1.5 text-[11px] text-muted">
+                      Ảnh tự động bị xoá ngay khi bạn bấm Duyệt.
+                    </p>
                   </div>
-                  <a
-                    href={s.result_url ?? '#'}
-                    target="_blank"
-                    rel="noopener noreferrer"
-                    className="block truncate rounded-lg border border-accent/25 bg-accent/8 px-3 py-2.5 font-mono text-xs text-accent hover:underline"
-                  >
-                    {s.result_url}
-                  </a>
-                </div>
+                ) : (
+                  <div className="mt-3">
+                    <div className="mb-1 text-[10px] font-bold tracking-wider text-muted uppercase">
+                      Link thành quả
+                    </div>
+                    <a
+                      href={s.result_url ?? '#'}
+                      target="_blank"
+                      rel="noopener noreferrer"
+                      className="block truncate rounded-lg border border-accent/25 bg-accent/8 px-3 py-2.5 font-mono text-xs text-accent hover:underline"
+                    >
+                      {s.result_url ?? '—'}
+                    </a>
+                  </div>
+                )}
 
                 {s.note && (
                   <p className="mt-2.5 rounded-lg bg-line/5 px-3 py-2 text-[13px] text-muted">

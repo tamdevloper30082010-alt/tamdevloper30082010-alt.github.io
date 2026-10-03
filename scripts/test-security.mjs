@@ -115,7 +115,7 @@ const { data: taskId, error: cErr } = await adminClient.rpc('admin_create_task',
   p_title: 'Vượt video YouTube kiểm thử',
   p_description: 'Xem hết video để test',
   p_target_url: TARGET,
-  p_platform: 'youtube',
+  p_task_type: 'link',
   p_price_vnd: 5000,
   p_quantity: 3,
   p_deadline_at: new Date(Date.now() + 86400000).toISOString(),
@@ -140,7 +140,7 @@ check('Gọi get_target_url với lượt không có → null', peek === null, `
 
 const { error: wCreate } = await w1c.rpc('admin_create_task', {
   p_title: 'Cố tạo nhiệm vụ', p_description: '', p_target_url: TARGET,
-  p_platform: 'youtube', p_price_vnd: 5000, p_quantity: 1,
+  p_task_type: 'link', p_price_vnd: 5000, p_quantity: 1,
   p_deadline_at: null, p_priority: 'normal',
 })
 check('Worker KHÔNG tạo được nhiệm vụ', !!wCreate, 'lẽ ra phải bị chặn')
@@ -167,22 +167,22 @@ check('Worker khác KHÔNG thấy lượt của người này', (w2Sees ?? []).l
 section('5. Gửi link thành quả')
 
 const { data: fake, error: fakeErr } = await w1c.rpc('submit_result', {
-  p_submission_id: subId, p_result_url: TARGET, p_note: '',
+  p_submission_id: subId, p_result_url: TARGET, p_note: '', p_evidence_path: null
 })
 check('Dán link nhiệm vụ gốc làm thành quả → bị chặn', !!fakeErr, 'lẽ ra phải bị chặn')
 
 const { error: badUrl } = await w1c.rpc('submit_result', {
-  p_submission_id: subId, p_result_url: 'không phải link', p_note: '',
+  p_submission_id: subId, p_result_url: 'không phải link', p_note: '', p_evidence_path: null
 })
 check('Gửi chuỗi không phải URL → bị chặn', !!badUrl)
 
 const { error: crossSubmit } = await w2c.rpc('submit_result', {
-  p_submission_id: subId, p_result_url: RESULT, p_note: '',
+  p_submission_id: subId, p_result_url: RESULT, p_note: '', p_evidence_path: null
 })
 check('Worker khác nộp lượt của người này → bị chặn', !!crossSubmit, 'lẽ ra phải bị chặn')
 
 const { error: subErr } = await w1c.rpc('submit_result', {
-  p_submission_id: subId, p_result_url: RESULT, p_note: 'đã xem hết',
+  p_submission_id: subId, p_result_url: RESULT, p_note: 'đã xem hết', p_evidence_path: null
 })
 check('Gửi link hợp lệ thành công', !subErr, subErr?.message)
 
@@ -242,7 +242,7 @@ section('8. Tranh chấp lượt (race condition)')
 
 const { data: raceTask } = await adminClient.rpc('admin_create_task', {
   p_title: 'Nhiệm vụ tranh chấp 1 lượt', p_description: '', p_target_url: TARGET,
-  p_platform: 'website', p_price_vnd: 7000, p_quantity: 1,
+  p_task_type: 'link', p_price_vnd: 7000, p_quantity: 1,
   p_deadline_at: null, p_priority: 'normal',
 })
 
@@ -260,7 +260,7 @@ check('Task tự đóng khi hết lượt', raceRow?.status === 'closed', `trạ
 
 const { data: fullTask } = await adminClient.rpc('admin_create_task', {
   p_title: 'Nhiệm vụ 1 lượt đã lấy hết', p_description: '', p_target_url: TARGET,
-  p_platform: 'website', p_price_vnd: 2500, p_quantity: 1,
+  p_task_type: 'link', p_price_vnd: 2500, p_quantity: 1,
   p_deadline_at: null, p_priority: 'normal',
 })
 const { data: firstTake } = await w3c.rpc('claim_task', { p_task_id: fullTask })
@@ -273,30 +273,30 @@ section('9. Chống gian lận thành quả')
 
 const { data: cpTask } = await adminClient.rpc('admin_create_task', {
   p_title: 'Nhiệm vụ chống copy-paste', p_description: '', p_target_url: TARGET,
-  p_platform: 'website', p_price_vnd: 4000, p_quantity: 5,
+  p_task_type: 'link', p_price_vnd: 4000, p_quantity: 5,
   p_deadline_at: null, p_priority: 'normal',
 })
 const RESULT_A = `https://vnsite.test/ket-qua/${SUFFIX}-lan-dau`
 const RESULT_B = `https://vnsite.test/ket-qua/${SUFFIX}-lan-hai`
 const { data: cpSub } = await w3c.rpc('claim_task', { p_task_id: cpTask })
 const { error: cpErr } = await w3c.rpc('submit_result', {
-  p_submission_id: cpSub, p_result_url: RESULT_A, p_note: '',
+  p_submission_id: cpSub, p_result_url: RESULT_A, p_note: '', p_evidence_path: null
 })
 check('Lượt đầu nhận link bình thường', !cpErr, cpErr?.message)
 
 const { data: cp2Task } = await adminClient.rpc('admin_create_task', {
   p_title: 'Nhiệm vụ chống copy-paste 2', p_description: '', p_target_url: TARGET,
-  p_platform: 'website', p_price_vnd: 4000, p_quantity: 5,
+  p_task_type: 'link', p_price_vnd: 4000, p_quantity: 5,
   p_deadline_at: null, p_priority: 'normal',
 })
 const { data: cp2Sub } = await w2c.rpc('claim_task', { p_task_id: cp2Task })
 const { error: cpErr2 } = await w2c.rpc('submit_result', {
-  p_submission_id: cp2Sub, p_result_url: RESULT_A, p_note: '',
+  p_submission_id: cp2Sub, p_result_url: RESULT_A, p_note: '', p_evidence_path: null
 })
 check('Người khác dùng lại đúng link đó → bị chặn', !!cpErr2, 'lẽ ra phải bị chặn')
 
 const { error: cpErr3 } = await w2c.rpc('submit_result', {
-  p_submission_id: cp2Sub, p_result_url: RESULT_B, p_note: '',
+  p_submission_id: cp2Sub, p_result_url: RESULT_B, p_note: '', p_evidence_path: null
 })
 check('Dùng link khác chưa từng dùng → được chấp nhận', !cpErr3, cpErr3?.message)
 
@@ -305,7 +305,7 @@ section('10. Hạn nộp thành quả')
 
 const { data: lateTask } = await adminClient.rpc('admin_create_task', {
   p_title: 'Nhiệm vụ đã quá hạn', p_description: '', p_target_url: TARGET,
-  p_platform: 'website', p_price_vnd: 6000, p_quantity: 2,
+  p_task_type: 'link', p_price_vnd: 6000, p_quantity: 2,
   p_deadline_at: new Date(Date.now() + 3600000).toISOString(), p_priority: 'normal',
 })
 const { data: lateSub } = await w3c.rpc('claim_task', { p_task_id: lateTask })
@@ -315,7 +315,7 @@ const { execSQL } = await import('./db-run.mjs')
 await execSQL(`update public.tasks set deadline_at = now() - interval '1 hour' where id = '${lateTask}';`)
 
 const { error: lateErr } = await w3c.rpc('submit_result', {
-  p_submission_id: lateSub, p_result_url: 'https://vnsite.test/ket-qua-qua-han-xyz', p_note: '',
+  p_submission_id: lateSub, p_result_url: 'https://vnsite.test/ket-qua-qua-han-xyz', p_note: '', p_evidence_path: null
 })
 check('Nộp sau hạn → bị chặn', !!lateErr, 'lẽ ra phải bị chặn')
 
@@ -327,7 +327,7 @@ section('11. Bỏ lượt trả về kho')
 
 const { data: cancelTask } = await adminClient.rpc('admin_create_task', {
   p_title: 'Nhiệm vụ để test bỏ lượt', p_description: '', p_target_url: TARGET,
-  p_platform: 'website', p_price_vnd: 3000, p_quantity: 1,
+  p_task_type: 'link', p_price_vnd: 3000, p_quantity: 1,
   p_deadline_at: null, p_priority: 'normal',
 })
 const { data: cancelSub, error: cancelClaimErr } = await w2c.rpc('claim_task', { p_task_id: cancelTask })

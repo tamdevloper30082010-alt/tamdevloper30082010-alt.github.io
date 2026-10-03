@@ -1,7 +1,7 @@
 import { Link } from 'react-router-dom'
 import { Badge, Button, Card, cx } from './ui'
 import { formatVnd } from '../lib/money'
-import { PLATFORM_LABEL, PLATFORM_STYLE, type Task } from '../lib/types'
+import { TASK_TYPE_LABEL, TASK_TYPE_STYLE, type Task } from '../lib/types'
 
 function deadlineText(d: string | null) {
   if (!d) return null
@@ -34,7 +34,7 @@ export function TaskCard({
   return (
     <Card hover className="flex flex-col p-5">
       <div className="mb-3 flex flex-wrap items-center gap-1.5">
-        <Badge className={PLATFORM_STYLE[task.platform]}>{PLATFORM_LABEL[task.platform]}</Badge>
+        <Badge className={TASK_TYPE_STYLE[task.task_type]}>{TASK_TYPE_LABEL[task.task_type]}</Badge>
         {task.priority === 'hot' && (
           <Badge className="bg-danger/15 text-danger">🔥 ƯU TIÊN CAO</Badge>
         )}

@@ -6,16 +6,11 @@ import { TaskCard } from '../components/TaskCard'
 import { Button, Empty, Input, Select, Spinner, cx } from '../components/ui'
 import { supabase, errMessage } from '../lib/supabase'
 import { formatNumber } from '../lib/money'
-import {
-  PLATFORM_LABEL,
-  type Platform,
-  type Submission,
-  type Task,
-} from '../lib/types'
+import { TASK_TYPE_LABEL, type Submission, type Task, type TaskType } from '../lib/types'
 
 type Sort = 'new' | 'high' | 'low' | 'slots'
 
-const PLATFORMS: Platform[] = ['youtube', 'tiktok', 'facebook', 'website', 'seo', 'khac']
+const TASK_TYPES: TaskType[] = ['link', 'other']
 
 export default function Home() {
   const { session, profile } = useAuth()
@@ -28,7 +23,7 @@ export default function Home() {
   const [claiming, setClaiming] = useState<string | null>(null)
 
   const [q, setQ] = useState('')
-  const [platform, setPlatform] = useState<'' | Platform>('')
+  const [taskType, setTaskType] = useState<'' | TaskType>('')
   const [sort, setSort] = useState<Sort>('new')
   // Mặc định chỉ hiện nhiệm vụ còn lượt. Nhiệm vụ đã đóng/đủ người nhận
   // thì không làm được gì nên không nên chiếm chỗ trên bảng tin.
@@ -112,7 +107,7 @@ export default function Home() {
 
   const filtered = useMemo(() => {
     let out = tasks
-    if (platform) out = out.filter((t) => t.platform === platform)
+    if (taskType) out = out.filter((t) => t.task_type === taskType)
     if (q.trim()) {
       const k = q.trim().toLowerCase()
       out = out.filter(
@@ -129,7 +124,7 @@ export default function Home() {
       return new Date(b.created_at).getTime() - new Date(a.created_at).getTime()
     })
     return sorted
-  }, [tasks, platform, q, sort])
+  }, [tasks, taskType, q, sort])
 
   const openCount = openTasks.length
   const totalPay = openTasks.reduce((s, t) => s + t.price_vnd * t.remaining, 0)
@@ -145,8 +140,8 @@ export default function Home() {
           </span>
         </h1>
         <p className="mx-auto mt-3 max-w-xl text-sm text-muted sm:text-base">
-          Mỗi lượt hoàn thành sẽ được cộng tiền vào ví. Admin duyệt thành quả xong là
-          tiền về tài khoản.
+          Mỗi lượt hoàn thành sẽ được cộng tiền vào ví. Nhiệm vụ vượt link thì nộp link kết quả,
+          nhiệm vụ khác thì chụp ảnh làm bằng chứng.
         </p>
 
         {!session && (
@@ -192,14 +187,14 @@ export default function Home() {
           className="flex-1"
         />
         <Select
-          value={platform}
-          onChange={(e) => setPlatform(e.target.value as '' | Platform)}
+          value={taskType}
+          onChange={(e) => setTaskType(e.target.value as '' | TaskType)}
           className="sm:w-44"
         >
-          <option value="">Mọi nền tảng</option>
-          {PLATFORMS.map((p) => (
-            <option key={p} value={p}>
-              {PLATFORM_LABEL[p]}
+          <option value="">Mọi loại nhiệm vụ</option>
+          {TASK_TYPES.map((t) => (
+            <option key={t} value={t}>
+              {TASK_TYPE_LABEL[t]}
             </option>
           ))}
         </Select>

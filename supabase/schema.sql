@@ -29,9 +29,15 @@ create table if not exists public.tasks (
   id          uuid primary key default gen_random_uuid(),
   title       text        not null check (char_length(trim(title)) between 3 and 120),
   description text        not null default '',
-  target_url  text        not null check (char_length(trim(target_url)) between 8 and 2000),
-  platform    text        not null default 'khac'
-              check (platform in ('youtube','tiktok','facebook','website','seo','khac')),
+  -- Loại nhiệm vụ quyết định thành quả phải nộp bằng gì:
+  --   link  → vượt link, nộp link kết quả
+  --   other → làm theo mô tả, nộp ẢNH chứng minh
+  task_type   text        not null default 'link'
+              check (task_type in ('link','other')),
+  -- NULL với nhiệm vụ loại "other" — nhiệm vụ đó không có link nào để vượt.
+  target_url  text        check (target_url is null or char_length(trim(target_url)) between 8 and 2000),
+  -- Cột cũ, không còn ai đọc. Giữ lại để không mất dữ liệu và quay lui được.
+  platform    text        not null default 'khac',
   -- VND không có phần thập phân → bigint, tuyệt đối không dùng float
   price_vnd   bigint      not null check (price_vnd >= 1000 and price_vnd <= 10000000),
   quantity    int         not null check (quantity between 1 and 10000),
@@ -41,7 +47,21 @@ create table if not exists public.tasks (
   deadline_at timestamptz,
   created_by  uuid        not null references public.profiles(id),
   created_at  timestamptz not null default now(),
-  constraint tasks_taken_lte_quantity check (taken_count <= quantity and taken_count >= 0)
+
+  constraint tasks_taken_lte_quantity check (taken_count <= quantity and taken_count >= 0),
+
+  -- Loại "link" thì bắt buộc có link http(s); loại "other" thì không được có link.
+  constraint tasks_type_target_check check (
+    (task_type = 'link'  and target_url ~* '^https?://')
+    or
+    (task_type = 'other' and target_url is null)
+  ),
+
+  -- Nhiệm vụ "other" bắt buộc có mô tả — nếu không thì người nhận không biết
+  -- phải làm gì, còn admin thì không có gì để đối chiếu với ảnh.
+  constraint tasks_type_desc_check check (
+    task_type <> 'other' or char_length(trim(description)) >= 10
+  )
 );
 
 -- 1 lượt = 1 dòng. Giá được CHỤP LẢI lúc nhận, không đọc giá hiện tại lúc duyệt.
@@ -49,7 +69,9 @@ create table if not exists public.submissions (
   id           uuid primary key default gen_random_uuid(),
   task_id      uuid not null references public.tasks(id) on delete cascade,
   worker_id    uuid not null references public.profiles(id) on delete cascade,
+  -- Một trong hai: nhiệm vụ link dùng result_url, nhiệm vụ khác dùng ảnh.
   result_url   text,
+  evidence_path text,
   note         text        not null default '',
   price_vnd    bigint      not null,
   status       text        not null default 'in_progress'
@@ -60,10 +82,23 @@ create table if not exists public.submissions (
   reviewed_at  timestamptz,
   reviewed_by  uuid references public.profiles(id),
 
-  -- Đã gửi/duyệt/từ chối thì bắt buộc phải có link thành quả
+  -- Đã gửi/từ chối thì phải có thành quả: link HOẶC ảnh.
+  -- 'approved' cố ý không nằm trong danh sách: duyệt xong ảnh bị xoá ngay
+  -- để tiết kiệm dung lượng, nên hàng đã duyệt được phép trống.
   constraint sub_result_required
-    check (status not in ('submitted','approved','rejected')
-           or (result_url is not null and char_length(trim(result_url)) >= 8)),
+    check (status not in ('submitted','rejected')
+           or result_url is not null or evidence_path is not null),
+
+  -- Link và ảnh là hai cách nộp khác nhau, không dùng cùng lúc
+  constraint sub_one_proof
+    check (not (result_url is not null and evidence_path is not null)),
+
+  -- Đường dẫn ảnh: thư mục đầu là uid người gửi, đuôi ảnh hợp lệ
+  constraint sub_evidence_path_check
+    check (evidence_path is null
+           or (char_length(evidence_path) <= 300
+               and evidence_path ~ '^[A-Za-z0-9_./-]+$'
+               and evidence_path ~* '\.(jpg|jpeg|png|webp)$')),
 
   -- Đã xử lý thì phải có dấu vết người duyệt + thời điểm
   constraint sub_reviewed_complete
@@ -101,7 +136,7 @@ create table if not exists public.audit_log (
 -- 2. INDEX
 -- ────────────────────────────────────────────────────────────────────────────
 create index if not exists tasks_status_created_idx  on public.tasks(status, created_at desc);
-create index if not exists tasks_platform_idx       on public.tasks(platform);
+create index if not exists tasks_type_idx            on public.tasks(task_type);
 create index if not exists sub_worker_status_idx    on public.submissions(worker_id, status);
 create index if not exists sub_task_idx             on public.submissions(task_id);
 create index if not exists sub_queue_idx            on public.submissions(created_at)
@@ -280,21 +315,28 @@ end $$;
 
 -- GỬI LINK THÀNH QUẢ
 create or replace function public.submit_result(
-  p_submission_id uuid, p_result_url text, p_note text default ''
+  p_submission_id uuid, p_result_url text, p_note text default '',
+  p_evidence_path text default null
 ) returns void language plpgsql security definer set search_path = public, pg_temp as $$
 declare
-  s    public.submissions%rowtype;
-  t    public.tasks%rowtype;
-  v_url text;
+  s     public.submissions%rowtype;
+  t     public.tasks%rowtype;
+  v_res text;
+  v_ev  text;
 begin
   if auth.uid() is null then raise exception 'Chưa đăng nhập.'; end if;
 
-  v_url := trim(coalesce(p_result_url, ''));
-  if char_length(v_url) < 8 or char_length(v_url) > 2000 then
-    raise exception 'Link không hợp lệ.';
-  end if;
-  if v_url !~* '^https?://' then
-    raise exception 'Link phải bắt đầu bằng http:// hoặc https://';
+  v_res := trim(coalesce(p_result_url, ''));
+  v_ev  := trim(coalesce(p_evidence_path, ''));
+
+  -- Ảnh phải nằm trong thư mục của chính người gửi (thư mục đầu = uid).
+  if v_ev <> '' then
+    if char_length(v_ev) > 300 or v_ev !~ '^[A-Za-z0-9_./-]+$' then
+      raise exception 'Đường dẫn ảnh không hợp lệ.';
+    end if;
+    if split_part(v_ev, '/', 1) <> auth.uid()::text then
+      raise exception 'Ảnh bằng chứng phải nằm trong thư mục của chính bạn.';
+    end if;
   end if;
 
   select * into s from public.submissions where id = p_submission_id for update;
@@ -311,19 +353,37 @@ begin
     raise exception 'Đã quá hạn nộp thành quả.';
   end if;
 
-  if v_url = trim(t.target_url) then
-    raise exception 'Link này giống hệt link nhiệm vụ gốc, không phải kết quả.';
+  if t.task_type = 'link' then
+    -- Nhiệm vụ vượt link: đúng như cũ, bắt buộc link http(s).
+    if v_res !~* '^https?://' then
+      raise exception 'Với nhiệm vụ vượt link, kết quả phải là đường dẫn bắt đầu bằng http:// hoặc https://';
+    end if;
+    if char_length(v_res) > 1000 then raise exception 'Link quá dài (tối đa 1000 ký tự).'; end if;
+    if v_res = trim(coalesce(t.target_url, '')) then
+      raise exception 'Link này giống hệt link nhiệm vụ gốc, không phải kết quả.';
+    end if;
+  else
+    -- Nhiệm vụ khác: KHÔNG bắt buộc https:// nữa, nộp ảnh là được.
+    -- Thứ tự kiểm tra: dán link vào nhiệm vụ ảnh thì báo đúng lý do, đừng bắt
+    -- người dùng tự đoán.
+    if v_res <> '' then
+      raise exception 'Nhiệm vụ này nộp ảnh, đừng dán link vào nữa.';
+    end if;
+    if v_ev = '' then
+      raise exception 'Nhiệm vụ này cần ảnh chứng minh đã hoàn thành, không phải link.';
+    end if;
   end if;
 
   update public.submissions
-     set result_url = v_url,
-         note      = left(coalesce(p_note, ''), 500),
-         status    = 'submitted',
-         submitted_at = now()
+     set result_url    = nullif(v_res, ''),
+         evidence_path = nullif(v_ev, ''),
+         note          = left(coalesce(p_note, ''), 500),
+         status        = 'submitted',
+         submitted_at  = now()
    where id = p_submission_id;
 
   perform public.log_audit('submit_result', 'submission', p_submission_id,
-    jsonb_build_object('result_url', v_url));
+    jsonb_build_object('has_evidence', v_ev <> '', 'task_type', t.task_type));
 end $$;
 
 -- LẤY LINK CẦN VƯỢT
@@ -350,9 +410,13 @@ end $$;
 -- BỎ LƯỢT — người nhận tự trả lượt về kho.
 -- Không có hàm này thì giới hạn 10 lượt đang giú sẽ thành cái bẫy: nhận xong
 -- không làm nổi thì bị kẹt vĩnh viễn, không nhận được nhiệm vụ mới.
+drop function if exists public.cancel_my_submission(uuid);
+
 create or replace function public.cancel_my_submission(p_submission_id uuid)
-returns void language plpgsql security definer set search_path = public, pg_temp as $$
-declare s public.submissions%rowtype;
+returns text language plpgsql security definer set search_path = public, pg_temp as $$
+declare
+  s     public.submissions%rowtype;
+  v_ev  text;
 begin
   if auth.uid() is null then raise exception 'Chưa đăng nhập.'; end if;
 
@@ -365,6 +429,8 @@ begin
     raise exception 'Chỉ bỏ được lượt chưa gửi duyệt. Lượt đang chờ duyệt không thể bỏ.';
   end if;
 
+  v_ev := s.evidence_path;
+
   update public.submissions
      set status = 'cancelled', admin_note = 'Người nhận tự bỏ lượt',
          reviewed_at = now(), reviewed_by = auth.uid()
@@ -376,6 +442,7 @@ begin
    where id = s.task_id;
 
   perform public.log_audit('worker_cancel','submission',p_submission_id);
+  return v_ev;
 end $$;
 
 -- ────────────────────────────────────────────────────────────────────────────
@@ -384,38 +451,81 @@ end $$;
 
 create or replace function public.admin_create_task(
   p_title text, p_description text, p_target_url text,
-  p_platform text, p_price_vnd bigint, p_quantity int,
+  p_task_type text, p_price_vnd bigint, p_quantity int,
   p_deadline_at timestamptz, p_priority text
 ) returns uuid language plpgsql security definer set search_path = public, pg_temp as $$
-declare v_id uuid;
+declare
+  v_id uuid;
+  v_url text;
 begin
   perform public.require_admin();
-  if trim(p_target_url) !~* '^https?://' then
-    raise exception 'Link nhiệm vụ phải bắt đầu bằng http:// hoặc https://';
-  end if;
+  if p_task_type not in ('link','other') then raise exception 'Loại nhiệm vụ không hợp lệ.'; end if;
+
+  if p_task_type = 'link' then
+    if trim(coalesce(p_target_url,'')) !~* '^https?://' then
+      raise exception 'Nhiệm vụ vượt link bắt buộc phải có link bắt đầu bằng http:// hoặc https://';
+    end if;
+    v_url := left(trim(p_target_url), 2000);
+  else
+  if p_task_type = 'other' then
+    if char_length(trim(coalesce(p_description,''))) < 10 then
+      raise exception 'Nhiệm vụ khác bắt buộc phải có mô tả công việc (tối thiểu 10 ký tự).';
+    end if;
+    if trim(coalesce(p_target_url,'')) <> '' then
+      raise exception 'Nhiệm vụ khác không dùng link. Bỏ trống ô link, hoặc chuyển sang loại “Vượt link”.';
+    end if;
+    -- Chuyển sang "khác" là xoá link cũ cho sạch.
+    v_url := null;
+
   if p_deadline_at is not null and p_deadline_at <= now() then
     raise exception 'Hạn nộp phải nằm ở tương lai.';
   end if;
 
   insert into public.tasks
-    (title, description, target_url, platform, price_vnd, quantity, deadline_at, priority, created_by)
+    (title, description, task_type, target_url, price_vnd, quantity, deadline_at, priority, created_by)
   values
-    (trim(p_title), left(coalesce(p_description,''),2000), trim(p_target_url),
-     p_platform, p_price_vnd, p_quantity, p_deadline_at, p_priority, auth.uid())
+    (trim(p_title), left(coalesce(p_description,''),2000), p_task_type,
+     v_url, p_price_vnd, p_quantity, p_deadline_at, p_priority, auth.uid())
   returning id into v_id;
 
   perform public.log_audit('create_task','task',v_id,
-    jsonb_build_object('price_vnd', p_price_vnd, 'quantity', p_quantity));
+    jsonb_build_object('price_vnd', p_price_vnd, 'quantity', p_quantity, 'task_type', p_task_type));
   return v_id;
 end $$;
 
 create or replace function public.admin_update_task(
   p_task_id uuid, p_title text, p_description text, p_target_url text,
-  p_platform text, p_price_vnd bigint, p_quantity int,
+  p_task_type text, p_price_vnd bigint, p_quantity int,
   p_deadline_at timestamptz, p_priority text, p_status text
 ) returns void language plpgsql security definer set search_path = public, pg_temp as $$
+declare
+  v_url text;
 begin
   perform public.require_admin();
+  if p_task_type not in ('link','other') then raise exception 'Loại nhiệm vụ không hợp lệ.'; end if;
+
+  if p_task_type = 'other' then
+    if char_length(trim(coalesce(p_description,''))) < 10 then
+      raise exception 'Nhiệm vụ khác bắt buộc phải có mô tả công việc (tối thiểu 10 ký tự).';
+    end if;
+    if trim(coalesce(p_target_url,'')) <> '' then
+      raise exception 'Nhiệm vụ khác không dùng link. Bỏ trống ô link, hoặc chuyển sang loại “Vượt link”.';
+    end if;
+    -- Chuyển sang "khác" là xoá link cũ cho sạch.
+    v_url := null;
+  else
+    if trim(coalesce(p_target_url,'')) = '' then
+      -- Rỗng = giữ nguyên link cũ. Một lần sửa nhầm không được ghi đè link
+      -- thật bằng chuỗi rỗng và làm hỏng cả nhiệm vụ.
+      v_url := null;
+    else
+      if trim(p_target_url) !~* '^https?://' then
+        raise exception 'Link phải bắt đầu bằng http:// hoặc https://';
+      end if;
+      v_url := left(trim(p_target_url), 2000);
+    end if;
+  end if;
+
   if p_status = 'closed' and exists (
     select 1 from public.submissions
      where task_id = p_task_id and status in ('in_progress','submitted','rejected')
@@ -429,25 +539,18 @@ begin
   update public.tasks set
     title = trim(p_title),
     description = left(coalesce(p_description,''),2000),
-    -- Rỗng = giữ nguyên link cũ. Nếu không có nhánh này, một lần sửa nhầm
-    -- sẽ ghi đè link thật bằng chuỗi rỗng và làm hỏng cả nhiệm vụ.
-    target_url = case
-                   when p_target_url is null or trim(p_target_url) = '' then target_url
-                   else trim(p_target_url)
-                 end,
-    platform = p_platform,
+    task_type = p_task_type,
+    target_url = coalesce(v_url, target_url),
     price_vnd = p_price_vnd,
     quantity = p_quantity,
     deadline_at = p_deadline_at,
     priority = p_priority,
-    -- Tôn trọng trạng thái admin gửi lên. Trước đây hàm bỏ qua p_status và
-    -- luôn tự tính từ số lượt, khiến nút "Đóng" không có tác dụng gì với
-    -- nhiệm vụ còn lượt trống. Chỉ ép 'closed' khi đã đủ người nhận.
     status = case when taken_count >= p_quantity then 'closed' else p_status end
   where id = p_task_id;
 
   if not found then raise exception 'Không tìm thấy nhiệm vụ.'; end if;
-  perform public.log_audit('update_task','task',p_task_id, jsonb_build_object('price_vnd', p_price_vnd));
+  perform public.log_audit('update_task','task',p_task_id,
+    jsonb_build_object('price_vnd', p_price_vnd, 'task_type', p_task_type));
 end $$;
 
 create or replace function public.admin_delete_task(p_task_id uuid)
@@ -465,10 +568,14 @@ end $$;
 
 -- DUYỆT / TỪ CHỐI
 -- Khóa FOR UPDATE + guard status='submitted' ⇒ bấm Duyệt 2 lần chỉ cộng tiền 1 lần.
+drop function if exists public.admin_review_submission(uuid, boolean, text);
+
 create or replace function public.admin_review_submission(
   p_submission_id uuid, p_approve boolean, p_note text default ''
-) returns void language plpgsql security definer set search_path = public, pg_temp as $$
-declare s public.submissions%rowtype;
+) returns text language plpgsql security definer set search_path = public, pg_temp as $$
+declare
+  s     public.submissions%rowtype;
+  v_ev  text;
 begin
   perform public.require_admin();
 
@@ -482,20 +589,28 @@ begin
   end if;
 
   if p_approve then
+    v_ev := s.evidence_path;
+
     update public.submissions
        set status = 'approved', admin_note = nullif(trim(p_note), ''),
-           reviewed_at = now(), reviewed_by = auth.uid()
+           reviewed_at = now(), reviewed_by = auth.uid(),
+           -- Ảnh đã kiểm xong thì không giữ lại: xoá để tiết kiệm Storage.
+           evidence_path = null,
+           result_url = case when v_ev is not null then null else result_url end
      where id = p_submission_id;
 
     insert into public.transactions (user_id, amount_vnd, type, ref_id, note)
     values (s.worker_id, s.price_vnd, 'task_reward', p_submission_id, 'Thưởng hoàn thành nhiệm vụ');
 
     perform public.log_audit('approve','submission',p_submission_id,
-      jsonb_build_object('amount_vnd', s.price_vnd, 'worker_id', s.worker_id));
+      jsonb_build_object('amount_vnd', s.price_vnd, 'worker_id', s.worker_id,
+                         'evidence_path', v_ev));
   else
     if char_length(trim(coalesce(p_note,''))) < 3 then
       raise exception 'Phải nêu lý do từ chối (tối thiểu 3 ký tự).';
     end if;
+    -- Từ chối thì GIỮ ảnh lại: người nhận còn xem lại được, và sẽ xoá
+    -- khi nộp ảnh mới hoặc khi bỏ lượt.
     update public.submissions
        set status = 'rejected', admin_note = trim(p_note),
            reviewed_at = now(), reviewed_by = auth.uid()
@@ -503,14 +618,21 @@ begin
 
     perform public.log_audit('reject','submission',p_submission_id,
       jsonb_build_object('note', p_note));
+    v_ev := null;
   end if;
+
+  return v_ev;
 end $$;
 
 -- THU HỒI LƯỢT — trả lượt về kho
+drop function if exists public.admin_release_slot(uuid, text);
+
 create or replace function public.admin_release_slot(
   p_submission_id uuid, p_note text default ''
-) returns void language plpgsql security definer set search_path = public, pg_temp as $$
-declare s public.submissions%rowtype;
+) returns text language plpgsql security definer set search_path = public, pg_temp as $$
+declare
+  s     public.submissions%rowtype;
+  v_ev  text;
 begin
   perform public.require_admin();
   select * into s from public.submissions where id = p_submission_id for update;
@@ -519,9 +641,12 @@ begin
     raise exception 'Chỉ thu hồi được lượt đang làm hoặc bị từ chối (hiện tại: %).', s.status;
   end if;
 
+  v_ev := s.evidence_path;
+
   update public.submissions
      set status = 'cancelled', admin_note = nullif(trim(p_note), ''),
-         reviewed_at = now(), reviewed_by = auth.uid()
+         reviewed_at = now(), reviewed_by = auth.uid(),
+         evidence_path = null
    where id = p_submission_id;
 
   update public.tasks
@@ -530,6 +655,26 @@ begin
    where id = s.task_id;
 
   perform public.log_audit('release_slot','submission',p_submission_id);
+  return v_ev;
+end $$;
+
+-- ẢNH TỒN — admin bấm nút "Dọn ảnh tồn" gọi hàm này.
+-- Mỗi lần duyệt đều ghi evidence_path vào audit_log, nên kể cả phiên đăng
+-- nhập bị tắt giữa chừng (client chưa kịp xoá file) thì vẫn quét lại được.
+-- Xoá file đã không tồn tại là thành công nên chạy lại vô hại.
+create or replace function public.admin_evidence_orphans()
+returns text[] language plpgsql security definer set search_path = public, pg_temp as $$
+declare v text[];
+begin
+  perform public.require_admin();
+  select coalesce(array_agg(distinct a.payload->>'evidence_path'), '{}')
+    into v
+    from public.audit_log a
+   where a.action = 'approve'
+     and a.payload ? 'evidence_path'
+     and a.payload->>'evidence_path' is not null
+     and a.payload->>'evidence_path' <> '';
+  return v;
 end $$;
 
 create or replace function public.admin_set_role(p_user_id uuid, p_role text)
@@ -602,7 +747,7 @@ end $$;
 drop view if exists public.v_tasks;
 create view public.v_tasks as
 select
-  t.id, t.title, t.description, t.platform, t.price_vnd,
+  t.id, t.title, t.description, t.task_type, t.price_vnd,
   t.quantity, t.taken_count,
   greatest(t.quantity - t.taken_count, 0)::int as remaining,
   case when t.taken_count >= t.quantity then 'closed'::text else t.status end as status,
@@ -629,8 +774,8 @@ drop view if exists public.v_submissions;
 create view public.v_submissions as
 select
   s.id, s.task_id, s.worker_id, s.result_url, s.note, s.price_vnd, s.status,
-  s.admin_note, s.created_at, s.submitted_at, s.reviewed_at,
-  t.title, t.description, t.platform, t.priority, t.deadline_at, t.created_by
+  s.admin_note, s.created_at, s.submitted_at, s.reviewed_at, s.evidence_path,
+  t.title, t.description, t.task_type, t.priority, t.deadline_at, t.created_by
 from public.submissions s
 join public.tasks t on t.id = s.task_id
 where auth.uid() is not null
@@ -715,6 +860,7 @@ begin
     from pg_proc p join pg_namespace n on n.oid = p.pronamespace
     where n.nspname = 'public' and p.proname in (
       'claim_task','submit_result','get_target_url','cancel_my_submission',
+      'admin_evidence_orphans',
       'admin_create_task','admin_update_task','admin_delete_task',
       'admin_review_submission','admin_release_slot','admin_set_role',
       'admin_adjust_balance','admin_payout',
@@ -731,7 +877,7 @@ end $$;
 -- Chỉ cấp cho các hàm frontend thực sự gọi.
 -- (is_admin / current_role phải được cấp vì RLS policy gọi chúng.)
 grant execute on function public.claim_task(uuid) to authenticated;
-grant execute on function public.submit_result(uuid, text, text) to authenticated;
+grant execute on function public.submit_result(uuid, text, text, text) to authenticated;
 grant execute on function public.get_target_url(uuid) to authenticated;
 grant execute on function public.cancel_my_submission(uuid) to authenticated;
 grant execute on function public.update_my_profile(text) to authenticated;
@@ -768,6 +914,58 @@ comment on table public.audit_log is
   'Nhật ký kiểm toán append-only. Mỗi động tiền truy ngược được về một dòng.';
 
 -- ============================================================================
+-- ============================================================================
+--  9b. KHO ẢNH THÀNH QUẢ
+--
+--  Bucket private: không có link có chữ ký thì không ai xem được ảnh, kể cả
+--  admin. Đường dẫn luôn bắt đầu bằng uid người gửi.
+--
+--  KHÔNG có policy DELETE là lỗi chết người: ảnh không bao giờ xoá được, và
+--  người nhận không thay được ảnh cũ khi bị từ chối.
+-- ============================================================================
+
+insert into storage.buckets (id, name, public, file_size_limit, allowed_mime_types)
+values ('task-evidence', 'task-evidence', false, 5242880,
+        array['image/jpeg','image/png','image/webp'])
+on conflict (id) do update
+  set public             = excluded.public,
+      file_size_limit    = excluded.file_size_limit,
+      allowed_mime_types = excluded.allowed_mime_types;
+
+-- Người nhận chỉ ghi được vào thư mục tên mình (thư mục đầu tiên = uid).
+drop policy if exists evidence_insert on storage.objects;
+create policy evidence_insert on storage.objects
+  for insert to authenticated
+  with check (
+    bucket_id = 'task-evidence'
+    and (storage.foldername(name))[1] = auth.uid()::text
+  );
+
+-- Xem ảnh: chủ ảnh hoặc admin. Không có policy UPDATE ⇒ ảnh bất biến sau khi
+-- nộp, không ai lén thay ảnh rồi mới gửi duyệt.
+drop policy if exists evidence_read on storage.objects;
+create policy evidence_read on storage.objects
+  for select to authenticated
+  using (
+    bucket_id = 'task-evidence'
+    and ((storage.foldername(name))[1] = auth.uid()::text or public.is_admin())
+  );
+
+-- Xoá: chủ ảnh (thay ảnh khi bị từ chối, dọn khi bỏ lượt) và admin (dọn ảnh
+-- tồn sau khi duyệt).
+drop policy if exists evidence_delete on storage.objects;
+create policy evidence_delete on storage.objects
+  for delete to authenticated
+  using (
+    bucket_id = 'task-evidence'
+    and ((storage.foldername(name))[1] = auth.uid()::text or public.is_admin())
+  );
+
+-- Postgres KHÔNG xoá được file trong Storage — đó là dịch vụ riêng, cần
+-- service key mà frontend không được có. Nên admin_review_submission trả về
+-- đường dẫn ảnh đã xoá khỏi database, client dùng đường dẫn đó để xoá file.
+-- Nếu client chết giữa chừng thì admin_evidence_orphans() quét lại được.
+
 --  10. RÚT TIỀN
 --
 --  Nguyên tắc: tiền bị TRỪ ngay khi tạo yêu cầu, ghi thẳng vào sổ cái.
@@ -1195,7 +1393,7 @@ create index if not exists tasks_board_idx
 drop view if exists public.v_tasks;
 create view public.v_tasks as
 select
-  t.id, t.title, t.description, t.platform, t.price_vnd,
+  t.id, t.title, t.description, t.task_type, t.price_vnd,
   t.quantity, t.taken_count,
   greatest(t.quantity - t.taken_count, 0)::int as remaining,
   'open'::text as status,
@@ -1207,7 +1405,7 @@ where t.archived_at is null and t.status = 'open' and t.taken_count < t.quantity
 drop view if exists public.v_tasks_closed;
 create view public.v_tasks_closed as
 select
-  t.id, t.title, t.description, t.platform, t.price_vnd,
+  t.id, t.title, t.description, t.task_type, t.price_vnd,
   t.quantity, t.taken_count,
   0::int as remaining,
   'closed'::text as status,
@@ -1219,7 +1417,7 @@ where t.archived_at is null and (t.status = 'closed' or t.taken_count >= t.quant
 drop view if exists public.v_tasks_admin;
 create view public.v_tasks_admin as
 select
-  t.id, t.title, t.description, t.platform, t.price_vnd,
+  t.id, t.title, t.description, t.task_type, t.price_vnd,
   t.quantity, t.taken_count,
   greatest(t.quantity - t.taken_count, 0)::int as remaining,
   case when t.taken_count >= t.quantity then 'closed'::text else t.status end as status,

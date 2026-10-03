@@ -47,7 +47,7 @@ ok('Role vẫn là worker sau khi thử sửa', r2?.role === 'worker', `thực t
 // 4. không tạo được nhiệm vụ (cần admin)
 const { error: tErr } = await c.rpc('admin_create_task', {
   p_title: 'Cố tạo', p_description: '', p_target_url: 'https://a.example/x',
-  p_platform: 'website', p_price_vnd: 5000, p_quantity: 1,
+  p_task_type: 'link', p_price_vnd: 5000, p_quantity: 1,
   p_deadline_at: null, p_priority: 'normal',
 })
 ok('Không tạo được nhiệm vụ', !!tErr)

@@ -1,6 +1,11 @@
 export type Role = 'admin' | 'worker'
 
-export type Platform = 'youtube' | 'tiktok' | 'facebook' | 'website' | 'seo' | 'khac'
+/**
+ * Loại nhiệm vụ — thay cho "nền tảng" cũ.
+ *   link  : người nhận vượt một link, nộp link kết quả (http/https)
+ *   other : nhiệm vụ tự do, nộp ẢNH chứng minh đã hoàn thành
+ */
+export type TaskType = 'link' | 'other'
 
 export type SubmissionStatus =
   | 'in_progress'
@@ -22,7 +27,7 @@ export interface Task {
   id: string
   title: string
   description: string
-  platform: Platform
+  task_type: TaskType
   price_vnd: number
   quantity: number
   taken_count: number
@@ -42,7 +47,10 @@ export interface Submission {
   id: string
   task_id: string
   worker_id: string
+  /** Link thành quả — chỉ có với nhiệm vụ loại `link`. */
   result_url: string | null
+  /** Đường dẫn ảnh trong bucket `task-evidence` — chỉ có với nhiệm vụ loại `other`. */
+  evidence_path: string | null
   note: string
   price_vnd: number
   status: SubmissionStatus
@@ -53,7 +61,7 @@ export interface Submission {
   /* join từ v_submissions */
   title: string
   description: string
-  platform: Platform
+  task_type: TaskType
   priority: 'normal' | 'hot'
   deadline_at: string | null
   created_by: string
@@ -164,22 +172,20 @@ export interface AdminStats {
   paid_24h: number
 }
 
-export const PLATFORM_LABEL: Record<Platform, string> = {
-  youtube: 'YouTube',
-  tiktok: 'TikTok',
-  facebook: 'Facebook',
-  website: 'Website',
-  seo: 'SEO / Index',
-  khac: 'Khác',
+export const TASK_TYPE_LABEL: Record<TaskType, string> = {
+  link: '🔗 Vượt link',
+  other: '🧩 Nhiệm vụ khác',
 }
 
-export const PLATFORM_STYLE: Record<Platform, string> = {
-  youtube: 'bg-danger/15 text-danger',
-  tiktok: 'bg-info/15 text-info',
-  facebook: 'bg-accent/15 text-accent',
-  website: 'bg-money/15 text-money',
-  seo: 'bg-accent/15 text-accent',
-  khac: 'bg-muted/15 text-muted',
+export const TASK_TYPE_STYLE: Record<TaskType, string> = {
+  link: 'bg-info/15 text-info',
+  other: 'bg-accent/15 text-accent',
+}
+
+/** Một chữ tắt ngắn cho card hẹp — badge đầy đủ ở trên đã có nhãn. */
+export const TASK_TYPE_SHORT: Record<TaskType, string> = {
+  link: '🔗 Vượt link',
+  other: '🧩 Khác',
 }
 
 export const STATUS_LABEL: Record<SubmissionStatus, string> = {

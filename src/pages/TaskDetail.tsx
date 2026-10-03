@@ -5,7 +5,7 @@ import { useToast } from '../components/Toast'
 import { Badge, Button, Card, Spinner, cx } from '../components/ui'
 import { supabase, errMessage } from '../lib/supabase'
 import { formatVnd } from '../lib/money'
-import { PLATFORM_LABEL, PLATFORM_STYLE, type Task } from '../lib/types'
+import { TASK_TYPE_LABEL, TASK_TYPE_STYLE, type Task } from '../lib/types'
 
 export default function TaskDetail() {
   const { id } = useParams()
@@ -78,7 +78,7 @@ export default function TaskDetail() {
 
       <Card className="p-6">
         <div className="mb-3 flex flex-wrap items-center gap-1.5">
-          <Badge className={PLATFORM_STYLE[task.platform]}>{PLATFORM_LABEL[task.platform]}</Badge>
+          <Badge className={TASK_TYPE_STYLE[task.task_type]}>{TASK_TYPE_LABEL[task.task_type]}</Badge>
           {task.priority === 'hot' && <Badge className="bg-danger/15 text-danger">🔥 ƯU TIÊN CAO</Badge>}
           {full && <Badge className="bg-muted/15 text-muted">ĐÃ HẾT LƯỢT</Badge>}
         </div>
@@ -150,7 +150,9 @@ export default function TaskDetail() {
           )}
           {!session && (
             <p className="mt-2.5 text-center text-xs text-muted">
-              Link chỉ hiện sau khi bạn nhận nhiệm vụ.
+              {task.task_type === 'link'
+                ? 'Link chỉ hiện sau khi bạn nhận nhiệm vụ.'
+                : 'Ảnh thành quả chỉ nộp được sau khi bạn nhận nhiệm vụ.'}
             </p>
           )}
         </div>

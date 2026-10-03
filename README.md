@@ -1,8 +1,43 @@
-# Vượt Nhanh — sàn nhiệm vụ vượt liên kết
+# Vượt Nhanh — sàn nhiệm vụ
 
 Sàn giao dịch nhiệm vụ: admin đăng nhiệm vụ kèm mức thưởng VND → nhiệm vụ hiện lên
-trang chủ → người nhận bấm "Nhận nhiệm vụ" thì mới thấy link cần vượt, kèm ô input
-để gửi link thành quả → admin duyệt thì tiền mới cộng vào ví.
+trang chủ → người nhận bấm "Nhận nhiệm vụ" → làm xong nộp thành quả → admin duyệt thì
+tiền mới cộng vào ví.
+
+## Hai loại nhiệm vụ
+
+Admin chọn **loại nhiệm vụ** khi đăng (trường "nền tảng" cũ đã bỏ):
+
+| Loại | Người nhận thấy | Nộp thành quả bằng |
+|------|-----------------|--------------------|
+| **🔗 Vượt link** | link cần vượt (chỉ hiện sau khi nhận lượt) | link kết quả, bắt buộc `http://` hoặc `https://` |
+| **🧩 Nhiệm vụ khác** | mô tả công việc (bắt buộc ≥ 10 ký tự) | **ảnh chụp** — không bắt buộc link nữa |
+
+Nhiệm vụ loại "khác" không có link nào để vượt, nên `target_url` là `NULL`; ràng buộc
+`tasks_type_target_check` chặn việc lén nhét link vào.
+
+### Ảnh thành quả và vòng đời dung lượng
+
+Ảnh nằm ở bucket private `task-evidence`, mỗi lượt một thư mục riêng theo uid người
+gửi (`<uid>/<submission-id>-<timestamp>.<đuôi>`). Tối đa **5 MB**, chỉ nhận
+JPG / PNG / WEBP.
+
+Đường đi xoá ảnh, theo đúng thứ tự:
+
+1. Người nhận chọn ảnh → upload vào bucket.
+2. Gửi duyệt → database giữ `evidence_path`.
+3. Admin bấm **Duyệt** → `admin_review_submission` xoá `evidence_path` khỏi database
+   và **trả về đường dẫn đó** cho frontend.
+4. Frontend xoá file trong bucket. **Ảnh biến mất khỏi hệ thống ngay khi duyệt.**
+
+Postgres không xoá được file trong Storage (đó là dịch vụ riêng, cần service key mà
+frontend không được có) — nên bước 3–4 cố ý tách đôi. Mỗi lần duyệt đều ghi
+`evidence_path` vào `audit_log`, nên nếu mạng chết giữa bước 3 và 4 thì nút
+**🧹 Dọn ảnh tồn** ở trang duyệt gọi `admin_evidence_orphans()` để xoá nốt. Xoá file
+đã không tồn tại là thành công nên bấm bao nhiêu lần cũng an toàn.
+
+Ảnh bị **từ chối** thì được giữ lại: người nhận còn xem lại, và sẽ bị xoá khi họ nộp
+ảnh mới hoặc bỏ lượt.
 
 ## Triển khai
 
@@ -14,6 +49,20 @@ Variables* (không nằm trong code).
 
 Cài lại từ đầu: xoá `.github`, chạy `npm create vite@latest _s -- --template react-ts`,
 chép lại `src/`, `supabase/`, `scripts/`, `public/`, rồi đặt lại hai biến ở trên.
+
+### Đổi schema trên DB đang chạy
+
+**SQL trước, frontend sau.** Frontend mới gọi `admin_create_task(p_task_type…)` và
+`submit_result(…, p_evidence_path)`, còn DB cũ không có hai tham số đó → push
+frontend trước sẽ làm hỏng chức năng đăng nhiệm vụ và nộp thành quả.
+
+```bash
+SUPABASE_ACCESS_TOKEN=… SUPABASE_REF=… \
+  ./scripts/db.sh supabase/migration-task-type-evidence.sql
+```
+
+File này idempotent (chạy lại vô hại). DB mới thì chỉ cần chạy `supabase/schema.sql`
+một lần là đủ.
 
 ### Đường dẫn sâu (deep link)
 
@@ -129,16 +178,20 @@ Bảng tin chỉ trả về nhiệm vụ còn nhận được, lọc ở **view 
 ## Cấu trúc
 
 ```
-supabase/schema.sql      toàn bộ DB: bảng, RLS, RPC, view, audit log
+supabase/schema.sql      toàn bộ DB: bảng, RLS, RPC, view, storage, audit log
+supabase/migration-task-type-evidence.sql
+                        bản vá vá nốt cho DB đang chạy (chạy 1 lần, idempotent)
 scripts/db.sh            chạy SQL lên Supabase qua Management API (PAT từ env)
 scripts/test-security.mjs  bộ test nghiệm thu + bảo mật
 scripts/make-admin.sql     cấp quyền admin cho một tài khoản cụ thể
 scripts/verify-admin.mjs  kiểm tra không ai tự phong quyền được
 scripts/test-withdraw.mjs bộ test riêng cho rút tiền (64 phép)
 scripts/test-archive.mjs  bộ test ẩn/xoá nhiệm vụ (20 phép)
+scripts/test-evidence.mjs bộ test loại nhiệm vụ + ảnh thành quả (41 phép)
 scripts/reset-test-data.sql dọn dữ liệu test
 src/lib/money.ts         tiền — chỉ số nguyên, VND không có phần thập phân
 src/lib/supabase.ts      client + cách rút thông điệp lỗi tiếng Việt từ DB
+src/lib/proof.ts         upload/xoá/xem ảnh thành quả trong bucket task-evidence
 ```
 
 ## Bảo đảm tài chính

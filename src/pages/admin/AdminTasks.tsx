@@ -24,9 +24,9 @@ import {
   stripSeparators,
   validateQuantity,
 } from '../../lib/money'
-import { PLATFORM_LABEL, PLATFORM_STYLE, type Platform, type Task } from '../../lib/types'
+import { TASK_TYPE_LABEL, TASK_TYPE_STYLE, type Task, type TaskType } from '../../lib/types'
 
-const PLATFORMS: Platform[] = ['youtube', 'tiktok', 'facebook', 'website', 'seo', 'khac']
+const TASK_TYPES: TaskType[] = ['link', 'other']
 
 type Filter = 'live' | 'closed' | 'archived' | 'all'
 const FILTERS: { k: Filter; label: string }[] = [
@@ -40,7 +40,7 @@ const blank = {
   title: '',
   description: '',
   target_url: '',
-  platform: 'khac' as Platform,
+  task_type: 'link' as TaskType,
   price: '',
   quantity: '10',
   deadline: '',
@@ -53,7 +53,7 @@ function fromTask(t: Task): Form {
     title: t.title,
     description: t.description,
     target_url: '', // không đọc được từ view; admin xem ở hàng đợi duyệt
-    platform: t.platform,
+    task_type: t.task_type,
     price: String(t.price_vnd),
     quantity: String(t.quantity),
     deadline: t.deadline_at ? new Date(t.deadline_at).toISOString().slice(0, 16) : '',
@@ -95,8 +95,16 @@ export default function AdminTasks() {
   const validate = (): Partial<Record<keyof Form, string>> => {
     const e: Partial<Record<keyof Form, string>> = {}
     if (form.title.trim().length < 3) e.title = 'Tiêu đề ít nhất 3 ký tự.'
-    if (editing === 'new' && !/^https?:\/\/\S+$/i.test(form.target_url.trim()))
-      e.target_url = 'Link phải bắt đầu bằng http:// hoặc https://'
+
+    // Vượt link thì bắt buộc có link; nhiệm vụ khác thì link là vô nghĩa —
+    // người nhận sẽ nộp ảnh chứng minh nên phải có mô tả rõ công việc.
+    if (form.task_type === 'link') {
+      if (editing === 'new' && !/^https?:\/\/\S+$/i.test(form.target_url.trim()))
+        e.target_url = 'Link phải bắt đầu bằng http:// hoặc https://'
+    } else if (form.description.trim().length < 10) {
+      e.description = 'Nhiệm vụ khác cần mô tả công việc (tối thiểu 10 ký tự).'
+    }
+
     if (!isValidPrice(form.price)) e.price = priceHint()
     if (!validateQuantity(Number(form.quantity))) e.quantity = 'Số lượt từ 1 đến 10.000.'
     setErrs(e)
@@ -110,6 +118,8 @@ export default function AdminTasks() {
     const price = parseVnd(form.price)!
     const qty = Number(form.quantity)
     const deadline = form.deadline ? new Date(form.deadline).toISOString() : null
+    // Nhiệm vụ khác không có link nào để vượt — gửi rỗng xuống cho sạch.
+    const targetUrl = form.task_type === 'link' ? form.target_url.trim() : ''
 
     setBusy(true)
     const { error } =
@@ -117,8 +127,8 @@ export default function AdminTasks() {
         ? await supabase.rpc('admin_create_task', {
             p_title: form.title,
             p_description: form.description,
-            p_target_url: form.target_url,
-            p_platform: form.platform,
+            p_target_url: targetUrl,
+            p_task_type: form.task_type,
             p_price_vnd: price,
             p_quantity: qty,
             p_deadline_at: deadline,
@@ -128,8 +138,8 @@ export default function AdminTasks() {
             p_task_id: editing.id,
             p_title: form.title,
             p_description: form.description,
-            p_target_url: form.target_url.trim() || null,
-            p_platform: form.platform,
+            p_target_url: targetUrl || null,
+            p_task_type: form.task_type,
             p_price_vnd: price,
             p_quantity: qty,
             p_deadline_at: deadline,
@@ -179,7 +189,7 @@ export default function AdminTasks() {
       p_title: t.title,
       p_description: t.description,
       p_target_url: null,
-      p_platform: t.platform,
+      p_task_type: t.task_type,
       p_price_vnd: t.price_vnd,
       p_quantity: t.quantity,
       p_deadline_at: t.deadline_at,
@@ -286,8 +296,8 @@ export default function AdminTasks() {
                       <td className="max-w-xs px-4 py-3">
                         <div className="truncate font-semibold">{t.title}</div>
                         <div className="mt-0.5 flex items-center gap-1.5">
-                          <Badge className={PLATFORM_STYLE[t.platform]}>
-                            {PLATFORM_LABEL[t.platform]}
+                          <Badge className={TASK_TYPE_STYLE[t.task_type]}>
+                            {TASK_TYPE_LABEL[t.task_type]}
                           </Badge>
                           {t.archived_at && (
                             <Badge className="bg-muted/15 text-muted">ĐÃ ẨN</Badge>
@@ -348,8 +358,8 @@ export default function AdminTasks() {
               return (
                 <Card key={t.id} className={cx('p-4', t.archived_at && 'opacity-70')}>
                   <div className="mb-2 flex flex-wrap items-center gap-1.5">
-                    <Badge className={PLATFORM_STYLE[t.platform]}>
-                      {PLATFORM_LABEL[t.platform]}
+                    <Badge className={TASK_TYPE_STYLE[t.task_type]}>
+                      {TASK_TYPE_LABEL[t.task_type]}
                     </Badge>
                     {t.priority === 'hot' && (
                       <Badge className="bg-danger/15 text-danger">🔥 ƯU TIÊN</Badge>
@@ -430,57 +440,95 @@ export default function AdminTasks() {
         }
       >
         <div className="space-y-4">
+          <Field label="Loại nhiệm vụ" required>
+            <Select
+              value={form.task_type}
+              onChange={(e) => {
+                const task_type = e.target.value as TaskType
+                setForm({ ...form, task_type })
+                setErrs({ ...errs, target_url: undefined, description: undefined })
+              }}
+            >
+              {TASK_TYPES.map((t) => (
+                <option key={t} value={t}>
+                  {TASK_TYPE_LABEL[t]}
+                </option>
+              ))}
+            </Select>
+          </Field>
+
+          <p className="rounded-xl border border-line/12 bg-line/[0.04] px-3.5 py-2.5 text-[13px] leading-relaxed text-muted">
+            {form.task_type === 'link' ? (
+              <>
+                Người nhận vượt link rồi dán link kết quả. Không bắt buộc gửi ảnh.
+              </>
+            ) : (
+              <>
+                Người nhận làm theo mô tả rồi <b className="text-fg">chụp ảnh</b> làm
+                bằng chứng. Ảnh sẽ bị xoá khỏi hệ thống ngay khi bạn bấm Duyệt để tiết kiệm
+                dung lượng.
+              </>
+            )}
+          </p>
+
           <Field label="Tiêu đề" required error={errs.title}>
             <Input
               value={form.title}
               onChange={(e) => setForm({ ...form, title: e.target.value })}
               invalid={!!errs.title}
-              placeholder="Vượt video YouTube — kênh ABC"
-            />
-          </Field>
-
-          <Field label="Mô tả" hint="Hướng dẫn cụ thể cho người nhận nhiệm vụ">
-            <Textarea
-              rows={3}
-              value={form.description}
-              onChange={(e) => setForm({ ...form, description: e.target.value })}
-              placeholder="Xem hết video, không tắt quảng cáo…"
+              placeholder={
+                form.task_type === 'link'
+                  ? 'Vượt video YouTube — kênh ABC'
+                  : 'Chụp ảnh hàng đã nhận — shop MINH AN'
+              }
             />
           </Field>
 
           <Field
-            label="Link cần vượt"
-            required={editing === 'new'}
-            error={errs.target_url}
+            label="Mô tả nhiệm vụ"
+            required={form.task_type === 'other'}
+            error={errs.description}
             hint={
-              editing === 'new'
-                ? 'Chỉ hiện với người đã nhận nhiệm vụ.'
-                : 'Để trống nếu không muốn đổi link.'
+              form.task_type === 'other'
+                ? 'Bắt buộc với nhiệm vụ khác — đây là thứ duy nhất người nhận biết phải làm gì.'
+                : 'Hướng dẫn cụ thể cho người nhận nhiệm vụ'
             }
           >
-            <Input
-              value={form.target_url}
-              onChange={(e) => setForm({ ...form, target_url: e.target.value })}
-              invalid={!!errs.target_url}
-              placeholder="https://youtube.com/watch?v=…"
-              inputMode="url"
+            <Textarea
+              rows={3}
+              value={form.description}
+              onChange={(e) => setForm({ ...form, description: e.target.value })}
+              invalid={!!errs.description}
+              placeholder={
+                form.task_type === 'link'
+                  ? 'Xem hết video, không tắt quảng cáo…'
+                  : 'Chụp ảnh toàn bộ màn hình đơn hàng sau khi nhận, chụp rõ mã đơn…'
+              }
             />
           </Field>
 
-          <div className="grid gap-4 sm:grid-cols-2">
-            <Field label="Nền tảng">
-              <Select
-                value={form.platform}
-                onChange={(e) => setForm({ ...form, platform: e.target.value as Platform })}
-              >
-                {PLATFORMS.map((p) => (
-                  <option key={p} value={p}>
-                    {PLATFORM_LABEL[p]}
-                  </option>
-                ))}
-              </Select>
+          {form.task_type === 'link' && (
+            <Field
+              label="Link cần vượt"
+              required={editing === 'new'}
+              error={errs.target_url}
+              hint={
+                editing === 'new'
+                  ? 'Chỉ hiện với người đã nhận nhiệm vụ.'
+                  : 'Để trống nếu không muốn đổi link.'
+              }
+            >
+              <Input
+                value={form.target_url}
+                onChange={(e) => setForm({ ...form, target_url: e.target.value })}
+                invalid={!!errs.target_url}
+                placeholder="https://youtube.com/watch?v=…"
+                inputMode="url"
+              />
             </Field>
+          )}
 
+          <div className="grid gap-4 sm:grid-cols-2">
             <Field
               label="Thưởng mỗi lượt (VND)"
               required
