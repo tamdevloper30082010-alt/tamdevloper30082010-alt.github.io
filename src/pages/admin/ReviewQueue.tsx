@@ -1,9 +1,10 @@
 import { useCallback, useEffect, useState } from 'react'
 import { useToast } from '../../components/Toast'
-import { Badge, Button, Card, Empty, Field, Modal, Spinner, Textarea, cx } from '../../components/ui'
+import { Badge, Button, Card, Empty, Field, Modal, Spinner, Textarea } from '../../components/ui'
+import { EvidencePlayer } from '../../components/EvidencePlayer'
 import { supabase, errMessage } from '../../lib/supabase'
 import { formatVnd } from '../../lib/money'
-import { evidenceUrl, removeEvidence } from '../../lib/proof'
+import { evidenceKindFromPath, evidenceUrl, removeEvidence } from '../../lib/proof'
 import {
   TASK_TYPE_LABEL,
   TASK_TYPE_STYLE,
@@ -31,26 +32,12 @@ function EvidenceBox({ path }: { path: string }) {
   if (failed)
     return (
       <p className="rounded-lg border border-danger/35 bg-danger/10 px-3 py-2.5 text-[13px] font-medium text-danger">
-        Không mở được ảnh — link chữ ký hết hạn hoặc ảnh đã bị xoá. Tải lại trang thử lại.
+        Không mở được tệp — link chữ ký hết hạn hoặc tệp đã bị xoá. Tải lại trang thử lại.
       </p>
     )
   if (!url) return <div className="h-40 animate-pulse rounded-xl bg-line/8" />
 
-  return (
-    <a
-      href={url}
-      target="_blank"
-      rel="noopener noreferrer"
-      className={cx('block overflow-hidden rounded-xl border border-accent/25')}
-    >
-      <img
-        src={url}
-        alt="Ảnh thành quả"
-        loading="lazy"
-        className="max-h-80 w-full cursor-zoom-in bg-black/30 object-contain"
-      />
-    </a>
-  )
+  return <EvidencePlayer url={url} kind={evidenceKindFromPath(path)} alt="Thành quả" />
 }
 
 export default function ReviewQueue() {
@@ -114,15 +101,15 @@ export default function ReviewQueue() {
     setBusy(null)
     toast(
       purged
-        ? `Đã duyệt và cộng ${formatVnd(s.price_vnd)} vào ví. Ảnh thành quả đã được xoá.`
-        : `Đã duyệt ${formatVnd(s.price_vnd)}. Xoá ảnh bị lỗi mạng — bấm “Dọn ảnh tồn” để xoá nốt.`,
+        ? `Đã duyệt và cộng ${formatVnd(s.price_vnd)} vào ví. Tệp thành quả đã được xoá.`
+        : `Đã duyệt ${formatVnd(s.price_vnd)}. Xoá tệp bị lỗi mạng — bấm “Dọn tệp tồn” để xoá nốt.`,
       purged ? 'ok' : 'info',
     )
     void load()
   }
 
   /**
-   * Dọn ảnh còn sót: mỗi lần duyệt có ghi đường dẫn ảnh vào audit_log, nên kể cả
+   * Dọn tệp còn sót: mỗi lần duyệt có ghi đường dẫn vào audit_log, nên kể cả
    * phiên đăng nhập bị tắt giữa chừng thì vẫn quét lại được. Xoá file đã
    * không tồn tại là thành công — chạy lại bao nhiêu lần cũng an toàn.
    */
@@ -136,11 +123,11 @@ export default function ReviewQueue() {
     const paths = (data as string[] | null) ?? []
     if (!paths.length) {
       setPurging(false)
-      return toast('Không còn ảnh tồn nào.', 'info')
+      return toast('Không còn tệp tồn nào.', 'info')
     }
     const ok = (await Promise.all(paths.map(removeEvidence))).filter(Boolean).length
     setPurging(false)
-    toast(`Đã dọn ${ok}/${paths.length} ảnh tồn.`, ok === paths.length ? 'ok' : 'info')
+    toast(`Đã dọn ${ok}/${paths.length} tệp tồn.`, ok === paths.length ? 'ok' : 'info')
   }
 
   const doReject = async () => {
@@ -187,7 +174,7 @@ export default function ReviewQueue() {
           onClick={purgeOrphans}
           title="Xoá các ảnh thành quả còn sót trong kho"
         >
-          🧹 Dọn ảnh tồn
+          🧹 Dọn tệp tồn
         </Button>
       </div>
 
@@ -219,11 +206,11 @@ export default function ReviewQueue() {
                 {s.evidence_path ? (
                   <div className="mt-3">
                     <div className="mb-1 text-[10px] font-bold tracking-wider text-muted uppercase">
-                      Ảnh thành quả
+                      Ảnh / video thành quả
                     </div>
                     <EvidenceBox path={s.evidence_path} />
                     <p className="mt-1.5 text-[11px] text-muted">
-                      Ảnh tự động bị xoá ngay khi bạn bấm Duyệt.
+                      Tệp tự động bị xoá ngay khi bạn bấm Duyệt.
                     </p>
                   </div>
                 ) : (

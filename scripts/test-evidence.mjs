@@ -82,6 +82,25 @@ async function signIn(email) {
 
 const emailOf = (r) => `ev${r}.${SUFFIX}@vnsite.test`
 
+/**
+ * Container MP4 tối thiểu (hộp ftyp + mdat rỗng).
+ *
+ * Supabase Storage chỉ kiểm mime type, không mở file ra xem — nên tệp này đủ
+ * để chứng minh RLS cho phép video. Việc trình duyệt có phát được hay không
+ * thì test bằng Node không kiểm được, phải mở trên thiết bị thật mới biết.
+ */
+const MP4 = Uint8Array.from(atob(
+  'AAAAIGZ0eXBpc29tAAACAGlzb21pc28yYXZjMW1wNDEAAAEIbWRhdAAAAAAAAAAAAAA' +
+  'AAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAA' +
+  'AAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAA' +
+  'AAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAA' +
+  'AAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAA' +
+  'AAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAA' +
+  'AAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAA' +
+  'AAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAA' +
+  'AAAAAAAA',
+), (c) => c.charCodeAt(0))
+
 /** 1×1 PNG — ảnh thật, đủ để upload qua RLS. */
 const PNG = Uint8Array.from(
   atob(
@@ -323,6 +342,71 @@ const { error: delErr } = await adminClient.storage.from(BUCKET).remove([path])
 check('Admin xoá được file trong bucket', !delErr, delErr?.message)
 check('Ảnh đã biến mất khỏi bucket', !(await exists(adminClient, path)))
 check('Xoá lần hai vẫn OK (nút Dọn ảnh tồn chạy lại được)', true)
+
+// ── 6b. Nộp VIDEO thành quả ───────────────────────────────────
+section('6b. Video thành quả')
+
+const { data: vidTask, error: vidTaskErr } = await adminClient.rpc('admin_create_task', {
+  p_title: 'Quay video thành quả kiểm thử',
+  p_description: 'Quay lại toàn bộ quá trình làm để chứng minh đã hoàn thành',
+  p_target_url: '',
+  p_task_type: 'other',
+  p_price_vnd: 9000,
+  p_quantity: 1,
+  p_deadline_at: null,
+  p_priority: 'normal',
+})
+check('Tạo được nhiệm vụ loại "khác"', !!vidTask && !vidTaskErr, vidTaskErr?.message)
+
+const { data: vidSub, error: vidClaimErr } = await w1c.rpc('claim_task', { p_task_id: vidTask })
+check('Nhận được lượt', !!vidSub && !vidClaimErr, vidClaimErr?.message)
+
+const vidPath = `${w1.session.user.id}/${vidSub}-${Date.now()}.mp4`
+const { error: vidUpErr } = await w1c.storage
+  .from(BUCKET)
+  .upload(vidPath, MP4, { contentType: 'video/mp4', upsert: false })
+check('Upload video MP4 qua RLS → được', !vidUpErr, vidUpErr?.message)
+
+const { error: vidTooBig } = await w1c.storage
+  .from(BUCKET)
+  .upload(`${w1.session.user.id}/qua-lon-${Date.now()}.mp4`, new Uint8Array(25 * 1024 * 1024), {
+    contentType: 'video/mp4',
+    upsert: false,
+  })
+check('Video vượt 20 MB → bị bucket chặn', !!vidTooBig)
+
+const { error: vidBadMime } = await w1c.storage
+  .from(BUCKET)
+  .upload(`${w1.session.user.id}/rac-tay-${Date.now()}.mp4`, new Uint8Array(1024), {
+    contentType: 'application/octet-stream',
+    upsert: false,
+  })
+check('Tệp .mp4 nhưng mime không phải video → bị chặn', !!vidBadMime)
+
+const { error: vidSubErr } = await w1c.rpc('submit_result', {
+  p_submission_id: vidSub, p_result_url: '', p_note: 'đã quay xong', p_evidence_path: vidPath,
+})
+check('Nộp video thành công', !vidSubErr, vidSubErr?.message)
+
+const { data: vidRow } = await w1c
+  .from('v_submissions').select('evidence_path, status').eq('id', vidSub).single()
+check('evidence_path giữ đuôi .mp4', vidRow?.evidence_path === vidPath, `thực tế: ${vidRow?.evidence_path}`)
+
+const { data: vidSigned } = await w1c.storage.from(BUCKET).createSignedUrl(vidPath, 300)
+check('Xem được video của chính mình', !!vidSigned?.signedUrl)
+
+const { data: vidRev } = await adminClient.rpc('admin_review_submission', {
+  p_submission_id: vidSub, p_approve: true, p_note: '',
+})
+check('Duyệt video trả về đường dẫn để xoá', vidRev === vidPath, `thực tế: ${vidRev}`)
+
+const { data: vidAfter } = await adminClient
+  .from('v_submissions').select('evidence_path').eq('id', vidSub).single()
+check('evidence_path đã bị xoá khỏi DB', vidAfter?.evidence_path === null)
+
+const { error: vidDelErr } = await adminClient.storage.from(BUCKET).remove([vidPath])
+check('Xoá được file video trong bucket', !vidDelErr, vidDelErr?.message)
+check('Video đã biến mất khỏi bucket', !(await exists(adminClient, vidPath)))
 
 // ── 7. Nhiệm vụ vượt link không đổi gì ────────────────────────
 section('7. Nhiệm vụ vượt link giữ nguyên hành vi cũ')

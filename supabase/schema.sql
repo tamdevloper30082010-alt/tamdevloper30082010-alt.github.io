@@ -95,12 +95,12 @@ create table if not exists public.submissions (
   constraint sub_one_proof
     check (not (result_url is not null and evidence_path is not null)),
 
-  -- Đường dẫn ảnh: thư mục đầu là uid người gửi, đuôi ảnh hợp lệ
+  -- Đường dẫn tệp: thư mục đầu là uid người gửi, đuôi ảnh hoặc video hợp lệ
   constraint sub_evidence_path_check
     check (evidence_path is null
            or (char_length(evidence_path) <= 300
                and evidence_path ~ '^[A-Za-z0-9_./-]+$'
-               and evidence_path ~* '\.(jpg|jpeg|png|webp)$')),
+               and evidence_path ~* '\.(jpg|jpeg|png|webp|mp4|webm|mov|m4v)$')),
 
   -- Đã xử lý thì phải có dấu vết người duyệt + thời điểm
   constraint sub_reviewed_complete
@@ -917,9 +917,9 @@ comment on table public.audit_log is
 
 -- ============================================================================
 -- ============================================================================
---  9b. KHO ẢNH THÀNH QUẢ
+--  9b. KHO TỆP THÀNH QUẢ (ẢNH / VIDEO)
 --
---  Bucket private: không có link có chữ ký thì không ai xem được ảnh, kể cả
+--  Bucket private: không có link có chữ ký thì không ai xem được tệp, kể cả
 --  admin. Đường dẫn luôn bắt đầu bằng uid người gửi.
 --
 --  KHÔNG có policy DELETE là lỗi chết người: ảnh không bao giờ xoá được, và
@@ -927,8 +927,12 @@ comment on table public.audit_log is
 -- ============================================================================
 
 insert into storage.buckets (id, name, public, file_size_limit, allowed_mime_types)
-values ('task-evidence', 'task-evidence', false, 5242880,
-        array['image/jpeg','image/png','image/webp'])
+-- 20 MB vì có video: tệp thành quả là ẢNH hoặc VIDEO.
+-- Lưu ý dung lượng: mặc định Supabase có 1 GB, nên nếu tồn đọng nhiều video
+-- chờ duyệt cùng lúc thì hết chỗ. Video vẫn bị xoá ngay khi admin duyệt.
+values ('task-evidence', 'task-evidence', false, 20971520,
+        array['image/jpeg','image/png','image/webp',
+              'video/mp4','video/webm','video/quicktime','video/x-m4v'])
 on conflict (id) do update
   set public             = excluded.public,
       file_size_limit    = excluded.file_size_limit,
@@ -943,7 +947,7 @@ create policy evidence_insert on storage.objects
     and (storage.foldername(name))[1] = auth.uid()::text
   );
 
--- Xem ảnh: chủ ảnh hoặc admin. Không có policy UPDATE ⇒ ảnh bất biến sau khi
+-- Xem tệp: chủ tệp hoặc admin. Không có policy UPDATE ⇒ ảnh bất biến sau khi
 -- nộp, không ai lén thay ảnh rồi mới gửi duyệt.
 drop policy if exists evidence_read on storage.objects;
 create policy evidence_read on storage.objects
@@ -953,7 +957,7 @@ create policy evidence_read on storage.objects
     and ((storage.foldername(name))[1] = auth.uid()::text or public.is_admin())
   );
 
--- Xoá: chủ ảnh (thay ảnh khi bị từ chối, dọn khi bỏ lượt) và admin (dọn ảnh
+-- Xoá: chủ tệp (thay khi bị từ chối, dọn khi bỏ lượt) và admin (dọn tệp
 -- tồn sau khi duyệt).
 drop policy if exists evidence_delete on storage.objects;
 create policy evidence_delete on storage.objects
@@ -965,7 +969,7 @@ create policy evidence_delete on storage.objects
 
 -- Postgres KHÔNG xoá được file trong Storage — đó là dịch vụ riêng, cần
 -- service key mà frontend không được có. Nên admin_review_submission trả về
--- đường dẫn ảnh đã xoá khỏi database, client dùng đường dẫn đó để xoá file.
+-- đường dẫn tệp đã xoá khỏi database, client dùng đường dẫn đó để xoá file.
 -- Nếu client chết giữa chừng thì admin_evidence_orphans() quét lại được.
 
 --  10. RÚT TIỀN

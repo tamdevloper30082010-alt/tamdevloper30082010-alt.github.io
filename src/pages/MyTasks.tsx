@@ -1,6 +1,7 @@
 import { useCallback, useEffect, useMemo, useRef, useState } from 'react'
 import { useAuth } from '../hooks/auth'
 import { useToast } from '../components/Toast'
+import { EvidencePlayer } from '../components/EvidencePlayer'
 import {
   Badge,
   Button,
@@ -16,8 +17,11 @@ import { formatVnd } from '../lib/money'
 import {
   evidenceAccept,
   evidenceExt,
+  evidenceKind,
+  evidenceKindFromPath,
   evidenceSizeLabel,
   evidenceUrl,
+  evidenceWarning,
   removeEvidence,
   uploadEvidence,
   MAX_EVIDENCE_BYTES,
@@ -59,26 +63,19 @@ function EvidenceView({ path, tone }: { path: string; tone: string }) {
   if (failed) {
     return (
       <p className={cx('rounded-lg border border-line/15 bg-line/5 px-3 py-2 text-xs', tone)}>
-        Ảnh không tải được — có thể đã bị xoá để tiết kiệm dung lượng.
+        Không tải được tệp — có thể đã bị xoá để tiết kiệm dung lượng.
       </p>
     )
   }
   if (!url) return <div className="h-32 animate-pulse rounded-xl bg-line/8" />
 
   return (
-    <a
-      href={url}
-      target="_blank"
-      rel="noopener noreferrer"
-      className="block overflow-hidden rounded-xl border border-line/15"
-    >
-      <img
-        src={url}
-        alt="Ảnh thành quả"
-        loading="lazy"
-        className="max-h-64 w-full cursor-zoom-in bg-black/25 object-contain"
-      />
-    </a>
+    <EvidencePlayer
+      url={url}
+      kind={evidenceKindFromPath(path)}
+      alt="Thành quả"
+      className="max-h-64"
+    />
   )
 }
 
@@ -100,6 +97,7 @@ function SubmitBox({
   const [note, setNote] = useState('')
   const [file, setFile] = useState<File | null>(null)
   const [preview, setPreview] = useState<string | null>(null)
+  const [warn, setWarn] = useState('')
   const [busy, setBusy] = useState(false)
   const [err, setErr] = useState('')
   const fileRef = useRef<HTMLInputElement>(null)
@@ -123,13 +121,18 @@ function SubmitBox({
 
   const pick = (f: File | null) => {
     if (!f) return
+    setWarn('')
     if (!evidenceExt(f.type)) {
-      return setErr('Chỉ nhận ảnh JPG, PNG hoặc WEBP.')
+      return setErr('Chỉ nhận ảnh (JPG/PNG/WEBP) hoặc video (MP4/WEBM).')
     }
     if (f.size > MAX_EVIDENCE_BYTES) {
-      return setErr(`Ảnh nặng ${(f.size / 1024 / 1024).toFixed(1)} MB — vượt quá ${evidenceSizeLabel()}.`)
+      return setErr(
+        `Tệp nặng ${(f.size / 1024 / 1024).toFixed(1)} MB — vượt quá ${evidenceSizeLabel()}. ` +
+          `Video nên quay ngắn, 720p là đủ.`,
+      )
     }
     setErr('')
+    setWarn(evidenceWarning(f.type) ?? '')
     setFile(f)
   }
 
@@ -181,6 +184,7 @@ function SubmitBox({
     setUrl('')
     setNote('')
     setFile(null)
+    setWarn('')
     if (fileRef.current) fileRef.current.value = ''
     onDone()
   }
@@ -226,7 +230,7 @@ function SubmitBox({
       {/* Ô NỘP THÀNH QUẢ */}
       <div className="mt-3 rounded-xl border border-line/12 bg-line/[0.04] p-4">
         <div className="mb-2 text-[11px] font-bold tracking-wider text-accent uppercase">
-          {isLink ? '② Gửi link thành quả' : '① Nộp ảnh thành quả'}
+          {isLink ? '② Gửi link thành quả' : '① Nộp ảnh hoặc video thành quả'}
         </div>
 
         {isLink ? (
@@ -254,9 +258,9 @@ function SubmitBox({
             )}
 
             <Field
-              label="Ảnh chứng minh đã hoàn thành"
+              label="Ảnh hoặc video chứng minh đã hoàn thành"
               required
-              hint={`JPG / PNG / WEBP, tối đa ${evidenceSizeLabel()}. Ảnh bị xoá tự động sau khi admin duyệt.`}
+              hint={`Ảnh JPG/PNG/WEBP hoặc video MP4/WEBM, tối đa ${evidenceSizeLabel()}. Tệp bị xoá tự động sau khi admin duyệt.`}
             >
               <input
                 ref={fileRef}
@@ -270,13 +274,29 @@ function SubmitBox({
               />
             </Field>
 
-            {preview && (
+            {warn && (
+              <p className="mt-2 rounded-lg border border-warn/35 bg-warn/10 px-3 py-2 text-[13px] font-medium text-warn">
+                {warn}
+              </p>
+            )}
+
+            {preview && file && (
               <div className="mt-3 overflow-hidden rounded-xl border border-line/15">
-                <img
-                  src={preview}
-                  alt="Xem trước"
-                  className="max-h-56 w-full bg-black/25 object-contain"
-                />
+                {evidenceKind(file.type) === 'video' ? (
+                  <video
+                    src={preview}
+                    controls
+                    preload="metadata"
+                    playsInline
+                    className="max-h-56 w-full bg-black/25"
+                  />
+                ) : (
+                  <img
+                    src={preview}
+                    alt="Xem trước"
+                    className="max-h-56 w-full bg-black/25 object-contain"
+                  />
+                )}
               </div>
             )}
           </div>

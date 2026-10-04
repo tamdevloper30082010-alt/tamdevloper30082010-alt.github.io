@@ -458,14 +458,16 @@ begin
 end $$;
 
 -- ────────────────────────────────────────────────────────────────────────────
--- 6. BUCKET ẢNH + QUYỀN
+-- 6. BUCKET TỆP (ẢNH / VIDEO) + QUYỀN
 --    Không có policy DELETE là lỗi chết người: ảnh không bao giờ xoá được
 --    và người nhận không thay được ảnh cũ khi bị từ chối.
 -- ────────────────────────────────────────────────────────────────────────────
 
 insert into storage.buckets (id, name, public, file_size_limit, allowed_mime_types)
-values ('task-evidence', 'task-evidence', false, 5242880,
-        array['image/jpeg','image/png','image/webp'])
+-- 20 MB vì có video: tệp thành quả là ẢNH hoặc VIDEO.
+values ('task-evidence', 'task-evidence', false, 20971520,
+        array['image/jpeg','image/png','image/webp',
+              'video/mp4','video/webm','video/quicktime','video/x-m4v'])
 on conflict (id) do update
   set public             = excluded.public,
       file_size_limit    = excluded.file_size_limit,

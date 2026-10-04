@@ -11,33 +11,45 @@ Admin chọn **loại nhiệm vụ** khi đăng (trường "nền tảng" cũ đ
 | Loại | Người nhận thấy | Nộp thành quả bằng |
 |------|-----------------|--------------------|
 | **🔗 Vượt link** | link cần vượt (chỉ hiện sau khi nhận lượt) | link kết quả, bắt buộc `http://` hoặc `https://` |
-| **🧩 Nhiệm vụ khác** | mô tả công việc (bắt buộc ≥ 10 ký tự) | **ảnh chụp** — không bắt buộc link nữa |
+| **🧩 Nhiệm vụ khác** | mô tả công việc (bắt buộc ≥ 10 ký tự) | **ảnh hoặc video** — không bắt buộc link nữa |
 
 Nhiệm vụ loại "khác" không có link nào để vượt, nên `target_url` là `NULL`; ràng buộc
 `tasks_type_target_check` chặn việc lén nhét link vào.
 
-### Ảnh thành quả và vòng đời dung lượng
+### Tệp thành quả (ảnh / video) và vòng đời dung lượng
 
-Ảnh nằm ở bucket private `task-evidence`, mỗi lượt một thư mục riêng theo uid người
-gửi (`<uid>/<submission-id>-<timestamp>.<đuôi>`). Tối đa **5 MB**, chỉ nhận
-JPG / PNG / WEBP.
+Tệp thành quả nằm ở bucket private `task-evidence`, mỗi lượt một thư mục riêng
+theo uid người gửi (`<uid>/<submission-id>-<timestamp>.<đuôi>`).
 
-Đường đi xoá ảnh, theo đúng thứ tự:
+| Loại | Định dạng | Ghi chú |
+|------|-----------|---------|
+| Ảnh | JPG / PNG / WEBP | |
+| Video | MP4 / WEBM / MOV | **Nên quay MP4** — Chrome không phát được MOV |
+
+Tối đa **20 MB**. Giới hạn này nới lên vì có video, nhưng đừng quên dung lượng:
+Supabase mặc định chỉ 1 GB, nên nếu tồn đọng nhiều video chờ duyệt cùng lúc thì
+hết chỗ. Video vẫn bị xoá ngay khi admin duyệt, nên kho chỉ phình lên tạm thời
+với phần đang chờ duyệt. Quay ngắn, 720p là thoải mái trong 20 MB.
+
+Kiểu tệp được suy ra từ đuôi đường dẫn — không cần thêm cột trong database chỉ
+để nhớ là ảnh hay video.
+
+Đường đi xoá tệp, theo đúng thứ tự:
 
 1. Người nhận chọn ảnh → upload vào bucket.
 2. Gửi duyệt → database giữ `evidence_path`.
 3. Admin bấm **Duyệt** → `admin_review_submission` xoá `evidence_path` khỏi database
    và **trả về đường dẫn đó** cho frontend.
-4. Frontend xoá file trong bucket. **Ảnh biến mất khỏi hệ thống ngay khi duyệt.**
+4. Frontend xoá file trong bucket. **Tệp biến mất khỏi hệ thống ngay khi duyệt.**
 
 Postgres không xoá được file trong Storage (đó là dịch vụ riêng, cần service key mà
 frontend không được có) — nên bước 3–4 cố ý tách đôi. Mỗi lần duyệt đều ghi
 `evidence_path` vào `audit_log`, nên nếu mạng chết giữa bước 3 và 4 thì nút
-**🧹 Dọn ảnh tồn** ở trang duyệt gọi `admin_evidence_orphans()` để xoá nốt. Xoá file
+**🧹 Dọn tệp tồn** ở trang duyệt gọi `admin_evidence_orphans()` để xoá nốt. Xoá file
 đã không tồn tại là thành công nên bấm bao nhiêu lần cũng an toàn.
 
-Ảnh bị **từ chối** thì được giữ lại: người nhận còn xem lại, và sẽ bị xoá khi họ nộp
-ảnh mới hoặc bỏ lượt.
+Tệp bị **từ chối** thì được giữ lại: người nhận còn xem lại, và sẽ bị xoá khi họ
+nộp tệp mới hoặc bỏ lượt.
 
 ## Triển khai
 
@@ -276,14 +288,15 @@ scripts/make-admin.sql     cấp quyền admin cho một tài khoản cụ thể
 scripts/verify-admin.mjs  kiểm tra không ai tự phong quyền được
 scripts/test-withdraw.mjs bộ test riêng cho rút tiền (64 phép)
 scripts/test-archive.mjs  bộ test ẩn/xoá nhiệm vụ (20 phép)
-scripts/test-evidence.mjs bộ test loại nhiệm vụ + ảnh thành quả (41 phép)
+scripts/test-evidence.mjs bộ test loại nhiệm vụ + tệp thành quả (53 phép)
 scripts/test-debt.mjs     bộ test điều chỉnh số dư âm + bù nợ (27 phép)
 scripts/test-discord.mjs  bộ test thông báo Discord (15 phép)
 supabase/discord-notify.sql  Vault + pg_net + thông báo Discord
 scripts/reset-test-data.sql dọn dữ liệu test
 src/lib/money.ts         tiền — chỉ số nguyên, VND không có phần thập phân
 src/lib/supabase.ts      client + cách rút thông điệp lỗi tiếng Việt từ DB
-src/lib/proof.ts         upload/xoá/xem ảnh thành quả trong bucket task-evidence
+src/lib/proof.ts         upload/xoá/xem ảnh & video thành quả trong bucket task-evidence
+src/components/EvidencePlayer.tsx  phát video / phóng to ảnh thành quả
 ```
 
 ## Bảo đảm tài chính
