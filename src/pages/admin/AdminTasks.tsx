@@ -15,7 +15,6 @@ import {
 } from '../../components/ui'
 import { supabase, errMessage } from '../../lib/supabase'
 import {
-  MAX_PRICE,
   MIN_PRICE,
   formatVnd,
   isValidPrice,
@@ -533,7 +532,7 @@ export default function AdminTasks() {
               label="Thưởng mỗi lượt (VND)"
               required
               error={errs.price}
-              hint={`${formatVnd(MIN_PRICE)} – ${formatVnd(MAX_PRICE)}`}
+              hint={`Nhập bao nhiêu cũng được, từ ${formatVnd(MIN_PRICE)} trở lên`}
             >
               <Input
                 value={form.price}

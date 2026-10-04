@@ -176,6 +176,20 @@ nhắc thành công.
 #   select vault.create_secret('<role id>',    'discord_role_id',    'Role Discord được nhắc');
 ```
 
+## Giá nhiệm vụ
+
+Admin nhập bao nhiêu cũng được, **tối thiểu 1 ₫** — trước đây chặn dưới 1.000 ₫.
+
+Tại sao tối thiểu là 1 chứ không phải 0: sổ cái có ràng buộc `amount_vnd <> 0`.
+Nhiệm vụ giá 0 ₫ tạo được, nhận lượt được, nộp thành quả được — rồi khi admin
+bấm Duyệt thì Postgres từ chối dòng giao dịch 0 và nhiệm vụ **kẹt vĩnh viễn ở
+"chờ duyệt"**, không sửa được. 1 ₫ là mức thấp nhất an toàn.
+
+Trần **10.000.000 ₫** mỗi lượt được giữ lại làm chốn gõ nhầm: thiếu một số 0
+là mất 100 triệu, mà sổ cái là append-only nên không sửa được — chỉ tạo được
+dòng điều chỉnh ngược lại. Bỏ trần thì đổi `MAX_PRICE` trong `src/lib/money.ts`
+và `tasks_price_vnd_check` trong `supabase/schema.sql`.
+
 ## Số dư âm và bù nợ
 
 Admin trừ được số dư bằng số âm — ví dụ khi người dùng hoàn tiền sai, dùng thẻ

@@ -39,7 +39,9 @@ create table if not exists public.tasks (
   -- Cột cũ, không còn ai đọc. Giữ lại để không mất dữ liệu và quay lui được.
   platform    text        not null default 'khac',
   -- VND không có phần thập phân → bigint, tuyệt đối không dùng float
-  price_vnd   bigint      not null check (price_vnd >= 1000 and price_vnd <= 10000000),
+  -- Tối thiểu là 1, KHÔNG phải 0: sổ cái chặn giao dịch 0, nên nhiệm vụ 0 ₫
+  -- sẽ không duyệt được (xem src/lib/money.ts). Trần giữ làm chốn gõ nhầm.
+  price_vnd   bigint      not null check (price_vnd >= 1 and price_vnd <= 10000000),
   quantity    int         not null check (quantity between 1 and 10000),
   taken_count int         not null default 0,
   status      text        not null default 'open' check (status in ('open','closed')),

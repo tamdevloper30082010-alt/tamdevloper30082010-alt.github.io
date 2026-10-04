@@ -23,7 +23,16 @@ export function plain(n: number): string {
   return nf.format(Math.trunc(n))
 }
 
-export const MIN_PRICE = 1_000
+/**
+ * Tối thiểu là 1 ₫, KHÔNG phải 0.
+ *
+ * Sổ cái có ràng buộc `amount_vnd <> 0`: một nhiệm vụ giá 0 ₫ khi admin bấm
+ * Duyệt sẽ tạo ra giao dịch 0 và bị Postgres từ chối — nhiệm vụ kẹt vĩnh viễn
+ * ở "chờ duyệt", không sửa được. 1 ₫ là mức thấp nhất an toàn.
+ */
+export const MIN_PRICE = 1
+
+/** Trần giữ làm chốn gõ thiếu số 0: mất 100 triệu mà sổ cái append-only. */
 export const MAX_PRICE = 10_000_000
 
 /**
@@ -45,7 +54,7 @@ export function isValidPrice(input: string): boolean {
 }
 
 export function priceHint(): string {
-  return `Từ ${formatVnd(MIN_PRICE)} đến ${formatVnd(MAX_PRICE)} mỗi lượt`
+  return `Bất kỳ số nào từ ${formatVnd(MIN_PRICE)} trở lên, tối đa ${formatVnd(MAX_PRICE)} mỗi lượt`
 }
 
 export function validateQuantity(n: number): boolean {

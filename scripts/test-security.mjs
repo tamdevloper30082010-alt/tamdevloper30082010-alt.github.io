@@ -341,6 +341,55 @@ check('Lượt trả về kho (taken_count = 0)', backOpen?.taken_count === 0, `
 const { data: reclaim } = await w2c.rpc('claim_task', { p_task_id: cancelTask })
 check('Có thể nhận lại lượt vừa bỏ', !!reclaim, cancelErr?.message)
 
+// ── 12. Giá nhiệm vụ tự do ───────────────────────────────────
+section('12. Giá nhiệm vụ tự do (không còn mức tối thiểu 1.000 ₫)')
+
+const { data: cheap, error: cheapErr } = await adminClient.rpc('admin_create_task', {
+  p_title: 'Nhiệm vụ giá rẻ kiểm thử', p_description: '', p_target_url: TARGET,
+  p_task_type: 'link', p_price_vnd: 1, p_quantity: 1,
+  p_deadline_at: null, p_priority: 'normal',
+})
+check('Tạo được nhiệm vụ giá 1 ₫', !!cheap && !cheapErr, cheapErr?.message)
+
+const balOf = async (c, uid) =>
+  Number((await c.from('v_wallet').select('balance_vnd').eq('user_id', uid).single()).data?.balance_vnd ?? 0)
+const cheapBefore = await balOf(w3c, reg3.session.user.id)
+
+const { data: cheapSub, error: cheapClaimErr } = await w3c.rpc('claim_task', { p_task_id: cheap })
+check('Nhận được lượt nhiệm vụ giá 1 ₫', !!cheapSub && !cheapClaimErr, cheapClaimErr?.message)
+
+const cheapResult = `https://vnsite.test/ket-qua/${SUFFIX}-cheap`
+const { error: cheapSubErr } = await w3c.rpc('submit_result', {
+  p_submission_id: cheapSub, p_result_url: cheapResult, p_note: '', p_evidence_path: null,
+})
+check('Nộp được thành quả cho nhiệm vụ giá 1 ₫', !cheapSubErr, cheapSubErr?.message)
+
+// Mấu chốt: sổ cái chặn giao dịch 0, nên nếu cho phép giá 0 thì DUYỆT sẽ
+// văng lỗi và nhiệm vụ kẹt vĩnh viễn ở "chờ duyệt". Đây là phép thử bảo vệ
+// cho cái ràng buộc price_vnd >= 1.
+const { error: cheapRevErr } = await adminClient.rpc('admin_review_submission', {
+  p_submission_id: cheapSub, p_approve: true, p_note: '',
+})
+check('Duyệt được nhiệm vụ giá 1 ₫ (sổ cái ghi được dòng 1 ₫)', !cheapRevErr, cheapRevErr?.message)
+
+const cheapAfter = await balOf(w3c, reg3.session.user.id)
+check('Ví người nhận cộng đúng 1 ₫', cheapAfter - cheapBefore === 1,
+  `trước ${cheapBefore} → sau ${cheapAfter}`)
+
+const { error: zeroErr } = await adminClient.rpc('admin_create_task', {
+  p_title: 'Nhiệm vụ giá 0 ₫', p_description: '', p_target_url: TARGET,
+  p_task_type: 'link', p_price_vnd: 0, p_quantity: 1,
+  p_deadline_at: null, p_priority: 'normal',
+})
+check('Giá 0 ₫ vẫn bị chặn (sổ cái không nhận giao dịch 0)', !!zeroErr)
+
+const { error: overErr } = await adminClient.rpc('admin_create_task', {
+  p_title: 'Nhiệm vụ giá quá trần', p_description: '', p_target_url: TARGET,
+  p_task_type: 'link', p_price_vnd: 10000001, p_quantity: 1,
+  p_deadline_at: null, p_priority: 'normal',
+})
+check('Giá vượt trần 10.000.000 ₫ vẫn bị chặn (chốn gõ nhầm)', !!overErr)
+
 // ═══════════════════════════════════════════════════════════════
 console.log(`\n\x1b[1mKẾT QUẢ: \x1b[32m${pass} đạt\x1b[0m, ${fail ? `\x1b[31m${fail} lỗi\x1b[0m` : '0 lỗi'}\x1b[0m`)
 if (failures.length) {
