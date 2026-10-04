@@ -148,6 +148,7 @@ declare
   v_embeds jsonb;
   v_body  jsonb;
   v_buttons jsonb;
+  v_params jsonb;
   v_mention boolean := false;
 begin
   if not exists (select 1 from public.discord_notify_rules
@@ -201,10 +202,30 @@ begin
       )
     );
 
+    -- ⚠ with_components=true là BẮT BUỘC, thiếu là nút bị bỏ âm thầm.
+    --
+    --   Theo docs.webhook của Discord: "Non-application-owned webhooks cannot
+    --   send interactive components, and the `components` field will be ignored
+    --   unless they set the `with_components` query param."
+    --
+    --   Webhook tạo từ giao diện Discord (cái mà ta đang dùng) KHÔNG phải
+    --   application-owned ⇒ phải tự bật param. Thiếu param thì Discord vẫn
+    --   trả HTTP 204/200 nhưng `components` trong tin nhắn là [] — tức là tin
+    --   vẫn gửi được, chỉ là mất sạch nút bấm, và không có lỗi nào báo ra.
+    --   Đó là lý do dễ tưởng "đã gửi nút" trong khi thực tế không có nút.
+    --
+    --   Chỉ thêm param khi thật sự có nút: những tin không có nút thì không
+    --   cần, và để nguyên cũng giúp phát hiện nếu sau này ta vô tình gửi
+    --   components mà quên bật param (trả về components=[] như cũ).
+    v_params := case
+                   when v_buttons is null then '{}'::jsonb
+                   else '{"with_components": "true"}'::jsonb
+                 end;
+
     return net.http_post(
       url     := v_url,
       body    := v_body,
-      params  := '{}'::jsonb,
+      params  := v_params,
       headers := '{}'::jsonb
     )::text;
 

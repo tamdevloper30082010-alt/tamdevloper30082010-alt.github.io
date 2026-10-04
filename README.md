@@ -142,6 +142,37 @@ có tài khoản mới, và điều chỉnh số dư. Mọi tin về tiền đ�
 người dùng lúc gửi** — tính thẳng từ sổ cái sau khi ghi dòng giao dịch, nên
 không bao giờ lệch.
 
+### Nút bấm trong tin nhắn
+
+Tin nhiệm vụ mới có hai nút: **✅ Nhận nhiệm vụ** (mở thẳng trang nhiệm vụ để
+nhận lượt) và **Xem chi tiết**. Tin còn lại có nút dẫn về đúng trang quản trị
+liên quan (duyệt thành quả, rút tiền, người dùng, …).
+
+Có một cái bẫy rất dễ gặp, đã mất khá nhiều thời gian mới tìm ra:
+
+> Theo [docs.webhook](https://docs.discord.com/developers/resources/webhook) của
+> Discord: *"Non-application-owned webhooks cannot send interactive components,
+> and the `components` field **will be ignored unless they set the
+> `with_components` query param**"*.
+
+Webhook tạo từ giao diện Discord (cái mà ta dùng) **không** phải
+application-owned, nên phải tự thêm `?with_components=true`. Thiếu param thì:
+
+- Discord vẫn trả **HTTP 204/200 — không có lỗi nào**
+- `embeds`, `content` hiển thị bình thường
+- nhưng `components` trong tin nhắn là **`[]`**, tức là **nút biến mất âm thầm**
+
+Vì vậy `notify_discord` chỉ thêm param này khi thật sự có nút để gửi:
+
+```sql
+params := case when v_buttons is null then '{}'::jsonb
+              else '{"with_components": "true"}'::jsonb end
+```
+
+Muốn kiểm tra nút có thật sự được Discord giữ lại hay không, thêm
+`wait=true` vào `params` tạm thời rồi đọc `net._http_response.content` — nếu
+`components` rỗng thì nút đã bị Discord bỏ.
+
 ### Vì sao gửi từ database, không gửi từ trình duyệt
 
 URL webhook nằm trong bundle thì bất kỳ ai mở DevTools cũng lấy được, rồi spam
