@@ -26,14 +26,20 @@
 -- Một nút link kiểu Discord: webhook CHỈ hỗ trợ nút link (type 2), không có
 -- modal hay select. Trả về null nếu URL không hợp lệ để gọi jsonb_agg được
 -- trơn tru.
+--
+-- Discord chỉ cho phép style 5 (Link) đi kèm với url. Các style 1–4
+-- (Primary/Secondary/Success/Danger) là nút tương tác, KHÔNG nhận url.
+-- Tham số p_primary được giữ lại để không phải sửa tất cả lời gọi hiện
+-- có; nó được bỏ qua vì webhook không có cách làm nút link nổi bật hơn
+-- — thứ tự + label mới quyết định "nút chính".
 drop function if exists public.btn(text, text, boolean);
 create or replace function public.btn(p_label text, p_url text, p_primary boolean default false)
 returns jsonb language sql immutable as $$
   select case
            when p_url is null or p_url !~* '^https?://' then null
            else jsonb_build_object(
-                  'type', 2,
-                  'style', case when p_primary then 2 else 5 end,
+                  'type',  2,
+                  'style', 5,
                   'label', left(p_label, 80),
                   'url',   p_url
                 )
