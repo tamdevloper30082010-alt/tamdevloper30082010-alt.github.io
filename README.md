@@ -183,9 +183,11 @@ nhắc thành công.
 ```bash
 ./scripts/db.sh supabase/schema.sql
 ./scripts/db.sh supabase/discord-notify.sql
-# rồi tạo 2 bí mật (URL webhook KHÔNG commit vào git):
+./scripts/db.sh supabase/migration-admin-task-actions.sql
+# rồi tạo 3 bí mật (URL webhook KHÔNG commit vào git):
 #   select vault.create_secret('<webhook url>', 'discord_webhook_url', 'Webhook Discord');
 #   select vault.create_secret('<role id>',    'discord_role_id',    'Role Discord được nhắc');
+#   select vault.create_secret('<site url>',   'site_url',           'URL tuyệt đối của web, vd https://example.com');
 ```
 
 ## Giá nhiệm vụ

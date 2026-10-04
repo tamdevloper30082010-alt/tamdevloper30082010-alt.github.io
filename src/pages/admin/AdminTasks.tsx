@@ -180,23 +180,55 @@ export default function AdminTasks() {
     void load()
   }
 
-  const toggleClose = async (t: Task) => {
-    const closing = t.remaining > 0
+  // ĐÓNG — luôn dùng được, kể cả khi còn lượt in_progress (sẽ bị huỷ trả về kho).
+  // Gọi admin_close_task thay cho admin_update_task vì admin_update_task từ
+  // chối đóng khi còn submission chưa xử lý xong.
+  const closeTask = async (t: Task) => {
+    if (!confirm(`Đóng nhiệm vụ “${t.title}”?\n\nCác lượt đang làm sẽ bị huỷ và trả về kho. Lượt chờ duyệt vẫn được giữ để admin duyệt tiếp.`))
+      return
     setBusy(true)
-    const { error } = await supabase.rpc('admin_update_task', {
+    const { error } = await supabase.rpc('admin_close_task', { p_task_id: t.id })
+    setBusy(false)
+    if (error) return toast(errMessage(error), 'err')
+    toast('Đã đóng nhiệm vụ.', 'ok')
+    void load()
+  }
+
+  // MỞ LẠI & ĐĂNG LẠI — reset taken_count về 0, gửi lại thông báo Discord
+  // kèm nút "Nhận nhiệm vụ" để mọi người bấm vào nhận. Nhiệm vụ cũ phải đã
+  // xử lý xong tất cả submission (không còn chờ duyệt / đang làm / bị từ chối).
+  const reopenTask = async (t: Task) => {
+    if (!confirm(`Mở lại và đăng lại nhiệm vụ “${t.title}”?\n\nLượt nhận sẽ được reset về 0 và thông báo Discord sẽ được gửi lại.\n\nLưu ý: phải duyệt/từ chối/thu hồi hết các lượt đang chờ trước.`))
+      return
+    setBusy(true)
+    const { error } = await supabase.rpc('admin_reset_task', { p_task_id: t.id })
+    setBusy(false)
+    if (error) return toast(errMessage(error), 'err')
+    toast('Đã mở lại và đăng lại nhiệm vụ.', 'ok')
+    void load()
+  }
+
+  // XOÁ HẲN — kể cả khi đã có lượt nhận / đã duyệt tiền. Bắt buộc gõ lại
+  // đúng tiêu đề để chặn click nhầm.
+  const hardDelete = async (t: Task) => {
+    const typed = prompt(
+      `Xoá HẲN nhiệm vụ “${t.title}” khỏi hệ thống?\n\n` +
+      'Tất cả lượt đã nhận sẽ bị xoá theo. Tiền đã trả cho người nhận KHÔNG được hoàn lại.\n\n' +
+      `Gõ lại chính xác tiêu đề nhiệm vụ để xác nhận:`
+    )
+    if (typed === null) return
+    if (typed.trim() !== t.title) {
+      toast('Tiêu đề không khớp, đã huỷ thao tác.', 'err')
+      return
+    }
+    setBusy(true)
+    const { error } = await supabase.rpc('admin_purge_task', {
       p_task_id: t.id,
-      p_title: t.title,
-      p_description: t.description,
-      p_target_url: null,
-      p_task_type: t.task_type,
-      p_price_vnd: t.price_vnd,
-      p_quantity: t.quantity,
-      p_deadline_at: t.deadline_at,
-      p_priority: t.priority,
-      p_status: closing ? 'closed' : 'open',
+      p_confirm: typed,
     })
     setBusy(false)
     if (error) return toast(errMessage(error), 'err')
+    toast('Đã xoá hẳn nhiệm vụ.', 'ok')
     void load()
   }
 
@@ -324,13 +356,18 @@ export default function AdminTasks() {
                         </span>
                       </td>
                       <td className="px-4 py-3">
-                        <div className="flex justify-end gap-1.5">
+                        <div className="flex flex-wrap justify-end gap-1.5">
                           <Button size="sm" variant="outline" onClick={() => open(t)}>
                             Sửa
                           </Button>
-                          {!t.archived_at && (
-                            <Button size="sm" variant="subtle" onClick={() => toggleClose(t)}>
-                              {t.remaining > 0 ? 'Đóng' : 'Mở lại'}
+                          {!t.archived_at && t.remaining > 0 && (
+                            <Button size="sm" variant="subtle" onClick={() => closeTask(t)}>
+                              Đóng
+                            </Button>
+                          )}
+                          {!t.archived_at && t.remaining <= 0 && (
+                            <Button size="sm" variant="subtle" onClick={() => reopenTask(t)}>
+                              Mở lại
                             </Button>
                           )}
                           <Button size="sm" variant="subtle" onClick={() => toggleArchive(t)}>
@@ -341,6 +378,14 @@ export default function AdminTasks() {
                               Xoá
                             </Button>
                           )}
+                          <Button
+                            size="sm"
+                            variant="ghost"
+                            className="text-danger hover:bg-danger/10"
+                            onClick={() => hardDelete(t)}
+                          >
+                            Xoá hẳn
+                          </Button>
                         </div>
                       </td>
                     </tr>
@@ -393,25 +438,38 @@ export default function AdminTasks() {
                     <Button size="md" variant="outline" className="flex-1" onClick={() => open(t)}>
                       Sửa
                     </Button>
-                    {!t.archived_at && (
-                      <Button size="md" variant="subtle" className="flex-1" onClick={() => toggleClose(t)}>
-                        {t.remaining > 0 ? 'Đóng' : 'Mở lại'}
+                    {!t.archived_at && t.remaining > 0 && (
+                      <Button size="md" variant="subtle" className="flex-1" onClick={() => closeTask(t)}>
+                        Đóng
+                      </Button>
+                    )}
+                    {!t.archived_at && t.remaining <= 0 && (
+                      <Button size="md" variant="subtle" className="flex-1" onClick={() => reopenTask(t)}>
+                        Mở lại
                       </Button>
                     )}
                     <Button size="md" variant="subtle" className="flex-1" onClick={() => toggleArchive(t)}>
                       {t.archived_at ? 'Bỏ ẩn' : 'Ẩn'}
                     </Button>
                     {!taken && !t.archived_at && (
-                      <Button size="md" variant="ghost" onClick={() => del(t)}>
+                      <Button size="md" variant="ghost" className="flex-1" onClick={() => del(t)}>
                         Xoá
                       </Button>
                     )}
+                    <Button
+                      size="md"
+                      variant="ghost"
+                      className="flex-1 text-danger hover:bg-danger/10"
+                      onClick={() => hardDelete(t)}
+                    >
+                      Xoá hẳn
+                    </Button>
                   </div>
 
                   {taken && !t.archived_at && (
                     <p className="mt-2.5 text-[11px] leading-snug text-muted">
-                      Đã có {t.sub_count} lượt được nhận nên không xoá hẳn được — dùng{' '}
-                      <b>Ẩn</b> để gỡ khỏi danh sách, lịch sử vẫn giữ nguyên.
+                      Đã có {t.sub_count} lượt được nhận — dùng <b>Ẩn</b> để gỡ khỏi danh sách
+                      (lịch sử giữ nguyên) hoặc <b>Xoá hẳn</b> để xoá hoàn toàn.
                     </p>
                   )}
                 </Card>
