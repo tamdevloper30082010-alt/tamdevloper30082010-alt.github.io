@@ -1,6 +1,6 @@
 import { useCallback, useEffect, useState } from 'react'
 import { Link } from 'react-router-dom'
-import { Card, Empty, Spinner, StatTile } from '../../components/ui'
+import { Card, Empty, PageHeader, Spinner, StatTile } from '../../components/ui'
 import { useToast } from '../../components/Toast'
 import { supabase, errMessage } from '../../lib/supabase'
 import { formatVnd } from '../../lib/money'
@@ -48,10 +48,12 @@ export default function Dashboard() {
 
   return (
     <div className="space-y-6">
-      <div>
-        <h1 className="text-2xl font-extrabold tracking-tight">Tổng quan</h1>
-        <p className="mt-1 text-sm text-muted">Sức mạnh nhiệm vụ và tiền đã chi trả.</p>
-      </div>
+      <PageHeader
+        eyebrow="Quản trị"
+        icon="◈"
+        title="Tổng quan"
+        desc="Sức khoẻ hoạt động của sàn trong ngày và 30 ngày gần nhất."
+      />
 
       <div className="grid grid-cols-2 gap-3 lg:grid-cols-3">
         <StatTile label="Chờ duyệt" value={stats?.waiting_review ?? 0} tone="money" />

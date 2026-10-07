@@ -9,6 +9,7 @@ import {
   Field,
   Input,
   Modal,
+  PageHeader,
   Spinner,
   Textarea,
   cx,
@@ -132,12 +133,12 @@ export default function AdminWithdrawals() {
 
   return (
     <div className="space-y-5">
-      <div>
-        <h1 className="text-2xl font-extrabold tracking-tight">Yêu cầu rút tiền</h1>
-        <p className="mt-1 text-sm text-muted">
-          Tiền đã trừ khỏi ví người nhận ngay khi họ gửi yêu cầu. Từ chối sẽ hoàn lại.
-        </p>
-      </div>
+      <PageHeader
+        eyebrow="Quản trị"
+        icon="⇩"
+        title="Yêu cầu rút tiền"
+        desc="Tiền đã bị trừ khỏi ví người nhận ngay khi họ gửi yêu cầu. Từ chối thì hệ thống hoàn lại đầy đủ."
+      />
 
       {counts.pending > 0 && filter !== 'pending' && (
         <button

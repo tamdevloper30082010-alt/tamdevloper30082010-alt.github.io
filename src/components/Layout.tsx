@@ -1,17 +1,18 @@
 import { useEffect, useState, type ReactNode } from 'react'
-import { NavLink, useNavigate } from 'react-router-dom'
+import { Link, NavLink, useLocation, useNavigate } from 'react-router-dom'
 import { useAuth } from '../hooks/auth'
 import { useTheme } from '../hooks/theme'
 import { cx, Badge } from './ui'
+import { useMagnetic, useSpotlight } from './animations'
 import { formatVnd } from '../lib/money'
 import { supabase } from '../lib/supabase'
 import type { Wallet } from '../lib/types'
 
 const WORKER_NAV = [
   { to: '/', label: 'Nhiệm vụ', icon: '◈' },
-  { to: '/cong-viec', label: 'Của tôi', icon: '◎' },
+  { to: '/cong-viec', label: 'Công việc', icon: '◎' },
   { to: '/rut-tien', label: 'Rút tiền', icon: '⇩' },
-  { to: '/vi', label: 'Ví', icon: '◉' },
+  { to: '/vi', label: 'Ví tiền', icon: '◉' },
 ]
 
 const ADMIN_NAV = [
@@ -19,19 +20,22 @@ const ADMIN_NAV = [
   { to: '/admin/nhiem-vu', label: 'Nhiệm vụ', icon: '▤' },
   { to: '/admin/duyet', label: 'Duyệt', icon: '✓' },
   { to: '/admin/rut-tien', label: 'Rút tiền', icon: '⇩' },
-  { to: '/admin/nguoi-dung', label: 'Người', icon: '☺' },
+  { to: '/admin/nguoi-dung', label: 'Người dùng', icon: '☺' },
 ]
 
 function Logo() {
   return (
-    <NavLink to="/" className="flex shrink-0 items-center gap-2.5">
-      <span className="from-accent to-info grid h-9 w-9 place-items-center rounded-xl bg-gradient-to-br text-sm font-black text-black">
+    <NavLink to="/" className="group flex shrink-0 items-center gap-2.5">
+      <span className="from-accent to-accent-2 relative grid h-9 w-9 place-items-center rounded-xl bg-gradient-to-br text-sm font-black text-black transition-transform duration-300 group-hover:scale-105">
         ⚡
+        <span className="absolute inset-0 rounded-xl ring-1 ring-white/20 ring-inset" />
       </span>
       <span className="hidden flex-col leading-none sm:flex">
-        <span className="text-[15px] font-extrabold tracking-tight">Vượt Nhanh</span>
+        <span className="font-display text-[15px] font-extrabold tracking-tight">
+          Vượt Nhanh
+        </span>
         <span className="mt-0.5 text-[10px] font-semibold tracking-widest text-muted uppercase">
-          Sàn nhiệm vụ
+          Nền tảng việc làm
         </span>
       </span>
     </NavLink>
@@ -40,14 +44,21 @@ function Logo() {
 
 function ThemeToggle() {
   const { theme, toggle } = useTheme()
+  const dark = theme === 'dark'
   return (
     <button
       onClick={toggle}
-      aria-label={`Chuyển giao diện ${theme === 'dark' ? 'sáng' : 'tối'}`}
-      title={`Giao diện ${theme === 'dark' ? 'tối' : 'sáng'}`}
-      className="border-line/12 hover:border-line/30 hover:bg-line/8 grid h-10 w-10 cursor-pointer place-items-center rounded-xl border text-base transition-all"
+      aria-label={`Chuyển giao diện ${dark ? 'sáng' : 'tối'}`}
+      title={`Giao diện ${dark ? 'tối' : 'sáng'}`}
+      className="border-line/12 hover:border-line/30 hover:bg-line/8 grid h-10 w-10 cursor-pointer place-items-center rounded-xl border text-base transition-all duration-200"
     >
-      {theme === 'dark' ? '☀' : '☾'}
+      <span
+        className="inline-block transition-transform duration-500"
+        style={{ animation: 'spin-slow 0.6s var(--ease-spring)' }}
+        key={theme}
+      >
+        {dark ? '☀' : '☾'}
+      </span>
     </button>
   )
 }
@@ -85,7 +96,8 @@ function BalanceChip() {
   return (
     <NavLink
       to="/vi"
-      className="border-money/25 bg-money/10 hover:bg-money/15 hidden items-center gap-2 rounded-xl border px-3 py-2 transition-colors sm:flex"
+      className="border-money/25 bg-money/10 hover:bg-money/18 hover:border-money/40 hidden items-center gap-2 rounded-xl border px-3.5 py-2 transition-all duration-200 sm:flex"
+      title="Số dư hiện có — bấm để mở ví"
     >
       <span className="text-xs">🪙</span>
       <span className="money text-money text-sm font-bold">{formatVnd(bal)}</span>
@@ -98,48 +110,74 @@ function UserMenu() {
   const [open, setOpen] = useState(false)
   const nav = useNavigate()
 
+  useEffect(() => {
+    if (!open) return
+    const close = () => setOpen(false)
+    // Đóng khi bấm ra ngoài hoặc nhấn Esc
+    window.addEventListener('click', close)
+    window.addEventListener('keydown', close)
+    return () => {
+      window.removeEventListener('click', close)
+      window.removeEventListener('keydown', close)
+    }
+  }, [open])
+
   if (!profile) return null
   const initial = (profile.full_name || profile.email || '?').charAt(0).toUpperCase()
 
   return (
-    <div className="relative">
+    <div className="relative" onClick={(e) => e.stopPropagation()}>
       <button
         onClick={() => setOpen((v) => !v)}
-        className="border-line/12 hover:bg-line/8 grid h-10 w-10 cursor-pointer place-items-center rounded-xl border text-sm font-bold transition-all"
         aria-label="Tài khoản"
+        aria-expanded={open}
+        className={cx(
+          'from-accent/25 to-accent-2/25 grid h-10 w-10 cursor-pointer place-items-center rounded-xl',
+          'bg-gradient-to-br text-sm font-extrabold text-fg transition-all duration-200',
+          'hover:from-accent/35 hover:to-accent-2/35',
+          open && 'ring-2 ring-accent/50',
+        )}
       >
         {initial}
       </button>
 
       {open && (
-        <>
-          <div className="fixed inset-0 z-20" onClick={() => setOpen(false)} />
-          <div className="glass animate-in absolute right-0 z-30 mt-2 w-60 overflow-hidden rounded-xl p-1.5">
-            <div className="border-b border-line/10 px-3 py-2.5">
-              <div className="truncate text-sm font-bold">
-                {profile.full_name || 'Chưa đặt tên'}
-              </div>
-              <div className="truncate text-xs text-muted">{profile.email}</div>
+        <div className="glass-strong animate-in-scale absolute right-0 z-30 mt-2 w-64 origin-top-right overflow-hidden rounded-2xl p-1.5">
+          <div className="border-b border-line/10 px-3 py-2.5">
+            <div className="truncate text-sm font-bold">
+              {profile.full_name || 'Chưa đặt tên'}
             </div>
-            <div className="px-3 py-2">
-              {isAdmin ? (
-                <Badge className="bg-money/15 text-money">QUẢN TRỊ VIÊN</Badge>
-              ) : (
-                <Badge className="bg-info/15 text-info">NGƯỜI NHẬN NHIỆM VỤ</Badge>
-              )}
-            </div>
-            <button
-              onClick={async () => {
-                setOpen(false)
-                await signOut()
-                nav('/')
-              }}
-              className="hover:bg-danger/12 w-full cursor-pointer rounded-lg px-3 py-2.5 text-left text-sm font-semibold text-danger transition-colors"
-            >
-              Đăng xuất
-            </button>
+            <div className="truncate text-xs text-muted">{profile.email}</div>
           </div>
-        </>
+          <div className="px-3 py-2">
+            {isAdmin ? (
+              <Badge className="bg-money/15 text-money" dot>
+                QUẢN TRỊ VIÊN
+              </Badge>
+            ) : (
+              <Badge className="bg-info/15 text-info" dot>
+                NGƯỜI NHẬN NHIỆM VỤ
+              </Badge>
+            )}
+          </div>
+          <Link
+            to="/cong-viec"
+            onClick={() => setOpen(false)}
+            className="hover:bg-line/8 flex items-center gap-2.5 rounded-lg px-3 py-2.5 text-sm font-semibold transition-colors"
+          >
+            <span className="text-muted">◎</span> Công việc của tôi
+          </Link>
+          <button
+            onClick={async () => {
+              setOpen(false)
+              await signOut()
+              nav('/')
+            }}
+            className="hover:bg-danger/12 hover:text-danger flex w-full cursor-pointer items-center gap-2.5 rounded-lg px-3 py-2.5 text-left text-sm font-semibold text-muted transition-colors"
+          >
+            <span>⇥</span> Đăng xuất
+          </button>
+        </div>
       )}
     </div>
   )
@@ -148,16 +186,46 @@ function UserMenu() {
 export function Layout({ children }: { children: ReactNode }) {
   const { session, isAdmin, profile } = useAuth()
   const links = isAdmin ? ADMIN_NAV : WORKER_NAV
+  const { pathname } = useLocation()
+  const [scrolled, setScrolled] = useState(false)
+  const ctaRef = useMagnetic<HTMLAnchorElement>(0.18)
+
+  // Header đục/mờ dần khi cuộn — tín hiệu "đã rời khỏi đầu trang"
+  useEffect(() => {
+    const onScroll = () => setScrolled(window.scrollY > 8)
+    onScroll()
+    window.addEventListener('scroll', onScroll, { passive: true })
+    return () => window.removeEventListener('scroll', onScroll)
+  }, [])
+
+  // Cuộn lên đầu khi đổi trang
+  useEffect(() => {
+    window.scrollTo({ top: 0, behavior: 'instant' as ScrollBehavior })
+  }, [pathname])
+
+  const spotlightRef = useSpotlight<HTMLDivElement>()
 
   return (
-    <div className="min-h-dvh">
-      <div className="aurora" aria-hidden />
+    <div className="flex min-h-dvh flex-col">
+      <div className="backdrop" aria-hidden>
+        <i />
+        <b />
+        <s />
+        <em />
+      </div>
 
-      <header className="sticky top-0 z-40 border-b border-line/8 bg-bg/70 backdrop-blur-xl">
+      <header
+        className={cx(
+          'sticky top-0 z-50 transition-all duration-300',
+          scrolled
+            ? 'glass-strong border-b border-line/8'
+            : 'border-b border-transparent bg-transparent',
+        )}
+      >
         <div className="mx-auto flex h-16 max-w-6xl items-center gap-3 px-4">
           <Logo />
 
-          <nav className="ml-4 hidden items-center gap-1 md:flex">
+          <nav className="ml-3 hidden items-center gap-1 md:flex">
             {links.map((l) => (
               <NavLink
                 key={l.to}
@@ -165,12 +233,23 @@ export function Layout({ children }: { children: ReactNode }) {
                 end={l.to === '/' || l.to === '/admin'}
                 className={({ isActive }) =>
                   cx(
-                    'rounded-lg px-3 py-2 text-sm font-semibold transition-colors',
-                    isActive ? 'bg-accent/12 text-accent' : 'text-muted hover:bg-line/6 hover:text-fg',
+                    'relative rounded-lg px-3.5 py-2 text-sm font-semibold transition-colors duration-200',
+                    isActive ? 'text-accent' : 'text-muted hover:text-fg',
                   )
                 }
               >
-                {l.label}
+                {({ isActive }) => (
+                  <>
+                    {l.label}
+                    {/* Gạch chân trượt — vệt sáng chạy sang mục đang chọn */}
+                    {isActive && (
+                      <span
+                        className="bg-accent absolute inset-x-3 -bottom-0.5 h-0.5 rounded-full"
+                        style={{ animation: 'fade-in 0.3s ease both' }}
+                      />
+                    )}
+                  </>
+                )}
               </NavLink>
             ))}
           </nav>
@@ -185,29 +264,32 @@ export function Layout({ children }: { children: ReactNode }) {
             ) : (
               <>
                 <ThemeToggle />
-                <a
-                  href="/dang-nhap"
-                  className="hover:bg-line/8 hidden rounded-lg px-3 py-2 text-sm font-semibold text-muted transition-colors hover:text-fg sm:block"
+                <Link
+                  to="/dang-nhap"
+                  className="hover:bg-line/8 hidden rounded-lg px-3.5 py-2 text-sm font-semibold text-muted transition-colors hover:text-fg sm:block"
                 >
                   Đăng nhập
-                </a>
-                <a
-                  href="/dang-ky"
-                  className="bg-accent glow-accent rounded-lg px-4 py-2 text-sm font-bold text-black transition-all hover:brightness-110"
+                </Link>
+                <Link
+                  ref={ctaRef}
+                  to="/dang-ky"
+                  className="bg-accent glow-accent sheen rounded-xl px-4.5 py-2.5 text-sm font-extrabold text-black transition-all duration-200 hover:brightness-110"
                 >
-                  Đăng ký
-                </a>
+                  Bắt đầu kiếm tiền
+                </Link>
               </>
             )}
           </div>
         </div>
       </header>
 
-      <main className="mx-auto max-w-6xl px-4 pt-6 pb-28 md:pb-12">{children}</main>
+      <main className="mx-auto w-full max-w-6xl flex-1 px-4 pt-6 pb-28 md:pb-14">
+        <div ref={spotlightRef}>{children}</div>
+      </main>
 
       {/* Bottom nav — chỉ hiện trên điện thoại */}
       {session && (
-        <nav className="fixed inset-x-0 bottom-0 z-40 border-t border-line/10 bg-bg/90 backdrop-blur-xl md:hidden">
+        <nav className="glass-strong fixed inset-x-0 bottom-0 z-50 border-t border-line/10 pb-[env(safe-area-inset-bottom)] md:hidden">
           <div className="mx-auto flex max-w-lg">
             {links.map((l) => (
               <NavLink
@@ -216,15 +298,27 @@ export function Layout({ children }: { children: ReactNode }) {
                 end={l.to === '/' || l.to === '/admin'}
                 className={({ isActive }) =>
                   cx(
-                    'flex flex-1 flex-col items-center gap-0.5 py-2.5 text-[10px] font-bold transition-colors',
+                    'relative flex flex-1 flex-col items-center gap-1 py-2.5 text-[10px] font-bold transition-colors duration-200',
                     isActive ? 'text-accent' : 'text-muted',
                   )
                 }
               >
                 {({ isActive }) => (
                   <>
-                    <span className="text-lg leading-none">{l.icon}</span>
-                    <span className={isActive ? 'opacity-100' : 'opacity-80'}>{l.label}</span>
+                    {/* Chấm nhỏ bật lên ở mục đang chọn */}
+                    {isActive && (
+                      <span
+                        className="bg-accent absolute top-1 h-1 w-1 rounded-full"
+                        style={{ animation: 'pop 0.35s var(--ease-spring) both' }}
+                      />
+                    )}
+                    <span
+                      className="text-lg leading-none transition-transform duration-300"
+                      style={isActive ? { transform: 'translateY(-1px) scale(1.1)' } : undefined}
+                    >
+                      {l.icon}
+                    </span>
+                    <span>{l.label}</span>
                   </>
                 )}
               </NavLink>
@@ -233,11 +327,44 @@ export function Layout({ children }: { children: ReactNode }) {
         </nav>
       )}
 
-      <footer className="mx-auto max-w-6xl px-4 pt-8 text-center text-xs text-muted">
-        <p>
-          {profile?.role === 'admin' ? 'Chế độ quản trị' : 'Chế độ người nhận nhiệm vụ'} ·{' '}
-          {new Date().getFullYear()} Vượt Nhanh
-        </p>
+      <footer className="hairline mt-8">
+        <div className="mx-auto max-w-6xl px-4 py-10">
+          <div className="flex flex-col items-center justify-between gap-6 sm:flex-row">
+            <div className="flex flex-col items-center gap-2 sm:items-start">
+              <Logo />
+              <p className="max-w-xs text-center text-xs leading-relaxed text-muted sm:text-left">
+                Nền tảng chia sẻ nhiệm vụ và thanh toán tức thì. Mọi khoản thưởng được
+                ghi vào sổ cái và đối soát minh bạch.
+              </p>
+            </div>
+
+            <div className="flex flex-wrap items-center justify-center gap-x-6 gap-y-2 text-xs text-muted">
+              <Link to="/" className="hover:text-fg transition-colors">
+                Nhiệm vụ
+              </Link>
+              <Link to="/cong-viec" className="hover:text-fg transition-colors">
+                Công việc của tôi
+              </Link>
+              <Link to="/rut-tien" className="hover:text-fg transition-colors">
+                Rút tiền
+              </Link>
+              <Link to="/vi" className="hover:text-fg transition-colors">
+                Ví tiền
+              </Link>
+            </div>
+          </div>
+
+          <div className="hairline mt-8 flex flex-col items-center justify-between gap-2 pt-6 text-xs text-muted sm:flex-row">
+            <p>
+              © {new Date().getFullYear()} Vượt Nhanh — Bảo lưu mọi quyền.
+            </p>
+            <p>
+              {profile?.role === 'admin'
+                ? 'Đang ở chế độ quản trị viên'
+                : 'Đang ở chế độ người nhận nhiệm vụ'}
+            </p>
+          </div>
+        </div>
       </footer>
     </div>
   )

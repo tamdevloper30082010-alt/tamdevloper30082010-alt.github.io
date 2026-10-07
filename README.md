@@ -412,3 +412,73 @@ node scripts/test-archive.mjs      # 20 phép
 Hai theme được thiết kế riêng (không phải lật màu), toàn bộ màu nằm trong biến CSS ở
 `src/index.css`. Script nhỏ trong `index.html` gắn theme trước khi React render nên
 không nháy trắng. Lần đầu vào sẽ theo `prefers-color-scheme` của hệ điều hành.
+
+## Thiết kế giao diện
+
+### Bộ token
+
+Toàn bộ màu, bóng, bo góc nằm ở `src/index.css`. Component **chỉ dùng token**
+(`bg-accent`, `text-money`, `text-muted`, `border-line/10`…), không hard-code màu.
+Đổi theme = đổi giá trị biến, không phải sửa component.
+
+| Token | Dùng cho |
+| --- | --- |
+| `accent` | hành động chính, trạng thái tốt, tiêu đề gradient |
+| `money` | mọi con số tiền |
+| `info` / `warn` / `danger` | thông tin / cảnh báo / lỗi |
+| `muted` | chữ phụ, nhãn nhỏ |
+| `line` | đường viền, vạch kẻ |
+
+Font: **Plus Jakarta Sans** cho tiêu đề (`font-display`), **Be Vietnam Pro** cho
+thân bài, **JetBrains Mono** cho mọi con số (`.money`) — số tiền phải thẳng
+cột để dễ so sánh.
+
+### Chuyển động
+
+Gom hết ở `src/components/animations.tsx`, component khác chỉ gọi, không tự
+viết `useEffect`:
+
+- `Reveal` — lộ dần khi cuộn tới (stagger bằng tham số `delay`)
+- `CountUp` — số đếm tăng dần (easing `easeOutExpo`)
+- `useRipple` — gợn sóng lan ra từ đúng chỗ bấm
+- `useSpotlight` — quầng sáng bám theo con trỏ
+- `useMagnetic` — nút bị "hút" nhẹ về phía con trỏ
+- `SplitText` — tiêu đề hiện từng từ
+
+Mọi thứ trên đều tự tắt khi người dùng bật *Giảm chuyển động* của hệ đối
+hành (`prefers-reduced-motion`). Các helper có con trỏ (`useSpotlight`,
+`useMagnetic`) còn tự bỏ qua trên điện thoại.
+
+**Nội dung không được phụ thuộc vào JavaScript để hiện.** `Reveal` đặt mặc
+định `opacity: 0`, nên nếu IntersectionObserver không bắn callback — ở lúc tab
+vừa mở, hay khi trình duyệt chưa vẽ frame nào — nội dung sẽ vĩnh viễn biến
+mất và người dùng chỉ thấy trang trắng. Vì vậy trước khi chờ observer,
+`Reveal` và `useCountUp` đều kiểm tra `getBoundingClientRect()`: đã lọt vào
+khung nhìn thì xử lý ngay. Chuyển động là phần thêm, không phải điều kiện để
+hiện nội dung.
+
+### Hai cái bẫy CSS đã gặp
+
+Cả hai đều cho ra kết quả *nhìn giống lỗi render* nhưng không có lỗi nào báo:
+
+1. **`background-clip: text` không vẽ qua phần tử con có `transform`.**
+   Dòng chữ gradient có `<span class="inline-block">` bọc từng từ kèm
+   animation ⇒ dòng **có layout đúng** nhưng vẽ ra trống. Sửa: gradient phải
+   nằm trên chính phần tử được animate, không nằm ở vỏ nó.
+
+2. **Dấu cách cuối trong `inline-block` bị bỏ.** `inline-block` là block
+   container riêng nên `<span>từ</span>{' '}` nuốt mất khoảng trắng, ra
+   "Kiếmthu nhậpthật". Sửa: dấu cách phải là anh em của span, không nằm bên
+   trong nó.
+
+### Build thiếu biến môi trường sẽ đỏ lên
+
+`src/lib/supabase.ts` throw ở top-level khi thiếu `VITE_SUPABASE_URL`. Bundler
+phân tích tĩnh thấy module luôn ném lỗi ⇒ kết luận code app không bao giờ
+chạy ⇒ **tước sạch khỏi bundle**. Kết quả: `npm run build` vẫn in
+`✓ built`, deploy vẫn chạy, nhưng trang ra **trắng trơn** mà CI không báo lỗi
+gì (đã gặp: 262 KB thay vì 601 KB).
+
+Vì vậy `vite.config.ts` chặn ngay ở bước build khi thiếu biến — thiếu cấu
+hình là hỏng luôn, phải làm build đỏ chứ không được "thành công" rồi ra
+trang trắng.

@@ -9,6 +9,7 @@ import {
   Field,
   Input,
   Modal,
+  PageHeader,
   Spinner,
   Textarea,
   cx,
@@ -129,12 +130,12 @@ export default function AdminUsers() {
 
   return (
     <div className="space-y-5">
-      <div>
-        <h1 className="text-2xl font-extrabold tracking-tight">Người dùng</h1>
-        <p className="mt-1 text-sm text-muted">
-          {users.length} tài khoản · mọi thay đổi quyền đều được ghi vào nhật ký.
-        </p>
-      </div>
+      <PageHeader
+        eyebrow="Quản trị"
+        icon="☺"
+        title="Người dùng"
+        desc={`${users.length} tài khoản trên hệ thống · mọi thay đổi quyền đều được ghi vào nhật ký kiểm toán.`}
+      />
 
       {users.length === 0 ? (
         <Empty title="Chưa có người dùng nào" />

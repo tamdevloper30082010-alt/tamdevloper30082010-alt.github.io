@@ -1,6 +1,6 @@
 import { useCallback, useEffect, useState } from 'react'
 import { useToast } from '../../components/Toast'
-import { Badge, Button, Card, Empty, Field, Modal, Spinner, Textarea } from '../../components/ui'
+import { Badge, Button, Card, Empty, Field, Modal, PageHeader, Spinner, Textarea } from '../../components/ui'
 import { EvidencePlayer } from '../../components/EvidencePlayer'
 import { supabase, errMessage } from '../../lib/supabase'
 import { formatVnd } from '../../lib/money'
@@ -155,12 +155,12 @@ export default function ReviewQueue() {
   return (
     <div className="space-y-5">
       <div className="flex flex-wrap items-end justify-between gap-3">
-        <div>
-          <h1 className="text-2xl font-extrabold tracking-tight">Duyệt thành quả</h1>
-          <p className="mt-1 text-sm text-muted">
-            Mở link kiểm tra trước khi duyệt. Duyệt xong tiền cộng ngay vào ví.
-          </p>
-        </div>
+        <PageHeader
+          eyebrow="Quản trị"
+          icon="✓"
+          title="Duyệt thành quả"
+          desc="Mở link hoặc ảnh để kiểm tra trước khi duyệt. Duyệt xong là tiền cộng ngay vào ví người nhận."
+        />
         {subs.length > 0 && (
           <div className="text-right">
             <div className="money text-money text-lg font-bold">{formatVnd(total)}</div>

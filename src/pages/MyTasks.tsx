@@ -8,6 +8,7 @@ import {
   Card,
   Empty,
   Field,
+  PageHeader,
   Spinner,
   Textarea,
   cx,
@@ -520,12 +521,12 @@ export default function MyTasks() {
 
   return (
     <div className="space-y-5">
-      <div>
-        <h1 className="text-2xl font-extrabold tracking-tight">Nhiệm vụ của tôi</h1>
-        <p className="mt-1 text-sm text-muted">
-          Nhấn vào nhiệm vụ đang làm để lấy link cần vượt và gửi link thành quả.
-        </p>
-      </div>
+      <PageHeader
+        eyebrow="Cá nhân"
+        icon="◎"
+        title="Công việc của tôi"
+        desc="Toàn bộ nhiệm vụ bạn đang giữ lượt. Mở một nhiệm vụ để lấy link cần vượt và gửi thành quả."
+      />
 
       {/* Tabs — cuộn ngang trên điện thoại */}
       <div className="flex gap-1.5 overflow-x-auto pb-1">
@@ -534,9 +535,9 @@ export default function MyTasks() {
             key={t.key}
             onClick={() => setTab(t.key)}
             className={cx(
-              'shrink-0 cursor-pointer rounded-lg px-3.5 py-2 text-sm font-semibold whitespace-nowrap transition-all',
+              'shrink-0 cursor-pointer rounded-lg px-3.5 py-2 text-sm font-semibold whitespace-nowrap transition-all duration-200',
               tab === t.key
-                ? 'bg-accent text-black'
+                ? 'bg-accent text-black shadow-[0_6px_18px_-8px_rgb(var(--c-accent)/0.8)]'
                 : 'hover:bg-line/8 text-muted hover:text-fg',
             )}
           >

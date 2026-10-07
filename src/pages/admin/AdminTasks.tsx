@@ -8,6 +8,7 @@ import {
   Field,
   Input,
   Modal,
+  PageHeader,
   Select,
   Spinner,
   Textarea,
@@ -254,15 +255,17 @@ export default function AdminTasks() {
 
   return (
     <div className="space-y-5">
-      <div className="flex flex-wrap items-end justify-between gap-3">
-        <div>
-          <h1 className="text-2xl font-extrabold tracking-tight">Quản lý nhiệm vụ</h1>
-          <p className="mt-1 text-sm text-muted">Đăng nhiệm vụ và đặt mức thưởng VND.</p>
-        </div>
-        <Button onClick={() => open('new')} size="lg">
-          + Đăng nhiệm vụ
-        </Button>
-      </div>
+      <PageHeader
+        eyebrow="Quản trị"
+        icon="▤"
+        title="Quản lý nhiệm vụ"
+        desc="Đăng nhiệm vụ, đặt mức thưởng và điều khiển vòng đời nhiệm vụ trên bảng tin."
+        action={
+          <Button onClick={() => open('new')} size="lg" glowRing>
+            + Đăng nhiệm vụ
+          </Button>
+        }
+      />
 
       <div className="flex gap-1.5 overflow-x-auto pb-1">
         {FILTERS.map((f) => (

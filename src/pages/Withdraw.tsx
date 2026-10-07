@@ -10,6 +10,7 @@ import {
   Field,
   Input,
   Modal,
+  PageHeader,
   Select,
   Spinner,
   Textarea,
@@ -279,12 +280,12 @@ export default function Withdraw() {
 
   return (
     <div className="space-y-5">
-      <div>
-        <h1 className="text-2xl font-extrabold tracking-tight">Rút tiền</h1>
-        <p className="mt-1 text-sm text-muted">
-          Số tiền trừ ngay khi gửi yêu cầu, được hoàn lại nếu bị từ chối.
-        </p>
-      </div>
+      <PageHeader
+        eyebrow="Tài chính"
+        icon="⇩"
+        title="Rút tiền"
+        desc="Số tiền bị trừ ngay khi bạn gửi yêu cầu và được hoàn trả đầy đủ nếu bị từ chối."
+      />
 
       <Card
         className={cx(

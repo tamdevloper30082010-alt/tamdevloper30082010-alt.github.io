@@ -2,7 +2,7 @@ import { useCallback, useEffect, useState } from 'react'
 import { Link } from 'react-router-dom'
 import { useAuth } from '../hooks/auth'
 import { useToast } from '../components/Toast'
-import { Card, Empty, Spinner, StatTile, cx } from '../components/ui'
+import { Card, Empty, PageHeader, Spinner, StatTile, cx } from '../components/ui'
 import { supabase, errMessage } from '../lib/supabase'
 import { formatVnd } from '../lib/money'
 import type { Transaction, Wallet } from '../lib/types'
@@ -55,12 +55,12 @@ export default function WalletPage() {
 
   return (
     <div className="space-y-6">
-      <div>
-        <h1 className="text-2xl font-extrabold tracking-tight">Ví tiền</h1>
-        <p className="mt-1 text-sm text-muted">
-          Số dư được tính từ toàn bộ giao dịch — không có cách nào sửa tay.
-        </p>
-      </div>
+      <PageHeader
+        eyebrow="Tài chính"
+        icon="◉"
+        title="Ví tiền"
+        desc="Số dư được tính tự động từ toàn bộ giao dịch trên hệ thống — không thể sửa tay, mọi thay đổi đều có dấu vết."
+      />
 
       <Card
         className={cx(
