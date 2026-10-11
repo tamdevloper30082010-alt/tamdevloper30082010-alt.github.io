@@ -49,10 +49,10 @@ export function TaskCard({
           {TASK_TYPE_LABEL[task.task_type]}
         </Badge>
         {task.priority === 'hot' && (
-          <Badge className="bg-danger/15 text-danger">🔥 Ưu tiên</Badge>
+          <Badge className="badge-live bg-danger/15 text-danger">🔥 Ưu tiên</Badge>
         )}
         {!full && task.remaining <= 3 && (
-          <Badge className="bg-warn/15 text-warn">Sắp hết lượt</Badge>
+          <Badge className="badge-live bg-warn/15 text-warn">Sắp hết lượt</Badge>
         )}
       </div>
 
@@ -115,6 +115,7 @@ export function TaskCard({
         {onClaim && (
           <Button
             size="md"
+            glowRing
             className="flex-1"
             disabled={!canClaim || full || locked}
             loading={claiming}
@@ -126,9 +127,9 @@ export function TaskCard({
         )}
         <Link
           to={`/nhiem-vu/${task.id}`}
-          className="hover:border-accent/40 hover:bg-accent/[0.07] inline-flex h-11 shrink-0 cursor-pointer items-center justify-center rounded-xl border border-line/15 px-4 text-sm font-semibold transition-all duration-200"
+          className="hover:border-accent/50 hover:bg-accent/[0.1] hover:text-accent press inline-flex h-11 shrink-0 cursor-pointer items-center justify-center rounded-xl border border-line/15 px-4 text-sm font-semibold transition-all duration-200"
         >
-          Chi tiết
+          Chi tiết <span className="ml-1 transition-transform duration-200 group-hover:translate-x-0.5">→</span>
         </Link>
       </div>
     </Card>

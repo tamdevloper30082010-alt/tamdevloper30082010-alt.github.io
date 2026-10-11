@@ -4,6 +4,7 @@ import { useAuth } from '../hooks/auth'
 import { useTheme } from '../hooks/theme'
 import { cx, Badge } from './ui'
 import { useMagnetic, useSpotlight } from './animations'
+import { FallingMotes } from './Atmosphere'
 import { formatVnd } from '../lib/money'
 import { supabase } from '../lib/supabase'
 import type { Wallet } from '../lib/types'
@@ -183,12 +184,26 @@ function UserMenu() {
   )
 }
 
+function usePrefersReducedMotion() {
+  const [v, setV] = useState(
+    () => typeof window !== 'undefined' && !!window.matchMedia?.('(prefers-reduced-motion: reduce)').matches,
+  )
+  useEffect(() => {
+    const mq = window.matchMedia('(prefers-reduced-motion: reduce)')
+    const on = () => setV(mq.matches)
+    mq.addEventListener('change', on)
+    return () => mq.removeEventListener('change', on)
+  }, [])
+  return v
+}
+
 export function Layout({ children }: { children: ReactNode }) {
   const { session, isAdmin, profile } = useAuth()
   const links = isAdmin ? ADMIN_NAV : WORKER_NAV
   const { pathname } = useLocation()
   const [scrolled, setScrolled] = useState(false)
   const ctaRef = useMagnetic<HTMLAnchorElement>(0.18)
+  const reducedMotion = usePrefersReducedMotion()
 
   // Header đục/mờ dần khi cuộn — tín hiệu "đã rời khỏi đầu trang"
   useEffect(() => {
@@ -213,6 +228,8 @@ export function Layout({ children }: { children: ReactNode }) {
         <s />
         <em />
       </div>
+      {/* Hạt sáng rơi — tắt hẳn khi người dùng bật "giảm chuyển động" */}
+      {!reducedMotion && <FallingMotes />}
 
       <header
         className={cx(

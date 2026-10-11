@@ -62,7 +62,7 @@ export function Button({
       disabled={disabled || loading}
       className={cx(
         'relative inline-flex shrink-0 cursor-pointer items-center justify-center overflow-hidden font-semibold',
-        'transition-all duration-200 active:scale-[0.97]',
+        'press',
         'disabled:pointer-events-none disabled:opacity-45',
         VARIANTS[variant],
         sizes[size],
@@ -241,6 +241,7 @@ export function Card({
         'glass rounded-2xl',
         hover && 'card-hover',
         spotlight && 'spotlight',
+        hover && 'sweep',
         className,
       )}
     >

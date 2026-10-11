@@ -181,7 +181,7 @@ export default function Home() {
       <section className="relative pt-6 pb-2 sm:pt-12">
         <div className="mx-auto max-w-3xl text-center">
           <span
-            className="animate-in glass inline-flex items-center gap-2 rounded-full px-3.5 py-1.5 text-[12px] font-semibold"
+            className="animate-in glass badge-live inline-flex items-center gap-2 rounded-full px-3.5 py-1.5 text-[12px] font-semibold"
             style={{ animationDelay: '50ms' }}
           >
             <span className="bg-accent pulse-ring h-1.5 w-1.5 rounded-full" />
@@ -248,7 +248,7 @@ export default function Home() {
             { label: 'Thưởng trung bình', value: avgPay, fmt: (n: number) => `${formatVnd(n)}`, tone: 'text-fg' },
           ].map((s, i) => (
             <Reveal key={s.label} delay={i * 90}>
-              <div className="glass card-hover h-full rounded-2xl p-4 text-center sm:p-5">
+              <div className="glass card-hover spotlight sweep group h-full rounded-2xl p-4 text-center sm:p-5">
                 <div className={`money text-xl font-extrabold sm:text-2xl ${s.tone}`}>
                   <CountUp value={s.value} format={s.fmt} />
                 </div>
@@ -261,11 +261,43 @@ export default function Home() {
         </div>
       </section>
 
+      {/* ══ DẢI NIÊM YÊN TĈNH ═══════════════════════════════════ */}
+      <Reveal>
+        <div className="ticker border-y border-line/8 py-3.5">
+          <div className="ticker__row gap-10 text-[13px] font-semibold text-muted">
+            {[0, 1].map((dup) => (
+              <div key={dup} className="flex shrink-0 gap-10" aria-hidden={dup === 1}>
+                {[
+                  '⚡ Nhận lượt chỉ 1 thao tác',
+                  '🔒 Link chỉ hiện sau khi nhận nhiệm vụ',
+                  '₫ Thưởng cộng thẳng vào ví',
+                  '📸 Nhiệm vụ khác — nộp ảnh làm bằng chứng',
+                  '⏱ Duyệt xong là rút được ngay',
+                  '✓ Mọi giao dịch có nhật ký kiểm toán',
+                  '🎁 Không phí đăng ký',
+                  '↩ Rút về ngân hàng, thẻ cào hoặc game',
+                ].map((t) => (
+                  <span key={t} className="whitespace-nowrap">
+                    {t}
+                  </span>
+                ))}
+              </div>
+            ))}
+          </div>
+        </div>
+      </Reveal>
+
       {/* ══ CÁCH HOẠT ĐỘNG ════════════════════════════════════ */}
       <section>
         <Reveal className="mb-6 text-center">
           <h2 className="font-display text-2xl font-extrabold tracking-tight sm:text-3xl">
-            Bốn bước để bắt đầu
+            <SplitText text="Bốn bước" delay={0} />{' '}
+            <SplitText
+              text="để bắt đầu"
+              delay={120}
+              className="text-gradient"
+              perWord={false}
+            />
           </h2>
           <p className="mt-2 text-sm text-muted">
             Không cần kinh nghiệm. Không cần vốn. Chỉ cần tài khoản miễn phí.

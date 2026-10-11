@@ -192,7 +192,6 @@ h3 {
   content: '';
   position: absolute;
   border-radius: 50%;
-  filter: blur(100px);
   opacity: var(--aurora-op);
   will-change: transform;
 }
@@ -439,14 +438,15 @@ h3 {
   position: absolute;
   border-radius: 9999px;
   background: currentColor;
-  opacity: 0.28;
+  opacity: 0.45;
   transform: scale(0);
-  animation: ripple-out 0.6s var(--ease-out-expo) forwards;
+  animation: ripple-out 0.62s var(--ease-out-expo) forwards;
   pointer-events: none;
+  mix-blend-mode: overlay;
 }
 @keyframes ripple-out {
   to {
-    transform: scale(2.6);
+    transform: scale(3);
     opacity: 0;
   }
 }
@@ -593,18 +593,125 @@ h3 {
   animation: pulse-ring 2.4s ease-out infinite;
 }
 
-/* Lộ dần khi cuộn tới — Reveal bọc phần tử này */
+/* Lộ dần khi cuộn tới — Reveal bọc phần tử này.
+   Đi xa hơn trước đây (20px) và có thêm blur: chuyển động nhẹ 20px gần như
+   không ai nhận ra là có chuyển động. Đây là bước "có chuyển động rõ". */
 .reveal {
   opacity: 0;
-  transform: translateY(20px);
+  transform: translateY(38px) scale(0.97);
+  filter: blur(6px);
   transition:
-    opacity 0.7s var(--ease-out-expo),
-    transform 0.7s var(--ease-out-expo);
+    opacity 0.75s var(--ease-out-expo),
+    transform 0.75s var(--ease-out-expo),
+    filter 0.75s var(--ease-out-expo);
   transition-delay: var(--d, 0ms);
+  will-change: opacity, transform, filter;
 }
 .reveal.is-in {
   opacity: 1;
   transform: none;
+  filter: none;
+  will-change: auto;
+}
+
+/* Hạt sáng rơi — lớp không khí phía sau nội dung */
+.motes {
+  position: fixed;
+  inset: 0;
+  z-index: -1;
+  overflow: hidden;
+  pointer-events: none;
+  contain: strict;
+}
+.mote {
+  position: absolute;
+  top: -6vh;
+  border-radius: 9999px;
+  animation-name: fall;
+  will-change: transform;
+  animation-timing-function: linear;
+  animation-iteration-count: infinite;
+  will-change: transform;
+}
+@keyframes fall {
+  0% {
+    transform: translate3d(0, -10vh, 0) scale(0.6);
+  }
+  10% {
+    transform: translate3d(calc(var(--drift) * 0.35), 0, 0) scale(1);
+  }
+  50% {
+    transform: translate3d(var(--drift), 52vh, 0) scale(0.9);
+  }
+  90% {
+    transform: translate3d(calc(var(--drift) * -0.3), 98vh, 0) scale(0.7);
+  }
+  100% {
+    transform: translate3d(calc(var(--drift) * -0.6), 112vh, 0) scale(0.5);
+  }
+}
+
+/* Vệt sáng quét ngang qua card khi rê chuột */
+.sweep {
+  position: relative;
+  overflow: hidden;
+}
+.sweep::before {
+  content: '';
+  position: absolute;
+  inset: 0;
+  background: linear-gradient(
+    100deg,
+    transparent 38%,
+    rgb(var(--c-accent) / 0.14) 50%,
+    transparent 62%
+  );
+  transform: translateX(-100%);
+  transition: transform 0.85s var(--ease-out-expo);
+  pointer-events: none;
+}
+.sweep:hover::before {
+  transform: translateX(100%);
+}
+
+/* Nhấn xuống rõ hơn — dùng cho mọi nút bấm */
+.press {
+  transition:
+    transform 0.18s var(--ease-spring),
+    box-shadow 0.25s ease,
+    filter 0.2s ease;
+}
+.press:active {
+  transform: scale(0.94) translateY(1px);
+  filter: brightness(1.1);
+}
+
+/* Nhãn dạng badge nhấp nháy nhẹ để bắt mắt */
+.badge-live {
+  animation: badge-breathe 2.8s ease-in-out infinite;
+}
+@keyframes badge-breathe {
+  0%,
+  100% {
+    box-shadow: 0 0 0 0 rgb(var(--c-accent) / 0);
+  }
+  50% {
+    box-shadow: 0 0 0 3px rgb(var(--c-accent) / 0.12);
+  }
+}
+
+/* Dải chạy không dừng — dùng cho dải niêm yên tĩnh */
+.ticker {
+  overflow: hidden;
+  mask-image: linear-gradient(90deg, transparent, #000 8%, #000 92%, transparent);
+}
+.ticker__row {
+  display: flex;
+  width: max-content;
+  animation: marquee 38s linear infinite;
+}
+.ticker:hover .ticker__row {
+  animation-play-state: paused;
 }
 
 .marquee {
@@ -650,8 +757,66 @@ h3 {
     transition-duration: 0.01ms !important;
     scroll-behavior: auto !important;
   }
+  /* Phải tắt hẳn chứ không chỉ rút ngắn: `animation-duration: 0.01ms` với
+     `iteration-count: 1` khiến hạt rơi đứng yên ở đúng đỉnh, tức là các
+     chấm sáng treo lơ lửng trên đầu trang. */
+  .mote {
+    display: none;
+  }
   .reveal {
     opacity: 1;
     transform: none;
+    filter: none;
   }
+  .sweep::before,
+  .ticker__row {
+    animation: none;
+    transform: none;
+  }
+}
+
+/* ============================================================
+   TỐI ƯU MÁY YẾU (iPhone 8s, Android cũ)
+   ============================================================
+   Safari di động gọi backdrop-filter mỗi khung hình: mỗi card kính là
+   một lần đọc lại vùng phía sau + blur + composite. Trang có hàng chục
+   card ⇒ mỗi lần cuộn là hàng chục phép blur chạy trên GPU yếu → lag,
+   vừa nóng máy vừa hao pin. Ở đây thay kính bằng nền đục: nhìn gần
+   giống, không tốn GPU.
+   ============================================================ */
+@media (max-width: 768px) {
+  .glass,
+  .glass-strong,
+  header,
+  nav,
+  .spotlight::before {
+    backdrop-filter: none !important;
+    -webkit-backdrop-filter: none !important;
+  }
+  .glass {
+    background: rgb(var(--c-bg-2) / 0.94);
+  }
+  [data-theme='light'] .glass {
+    background: rgb(255 255 255 / 0.96);
+  }
+  .glass-strong {
+    background: rgb(var(--c-bg) / 0.98);
+  }
+  [data-theme='light'] .glass-strong {
+    background: rgb(255 255 255 / 0.99);
+  }
+
+  /* Nền hạt nhiễu là SVG turbulence: rasterize lại mỗi lần đổi khung hình */
+  .backdrop > s { display: none; }
+
+  /* Ít hạt rơi hơn, bỏ quầng sáng */
+  .mote { box-shadow: none !important; }
+  .motes .mote:nth-child(n + 13) { display: none; }
+
+  /* Lưới nền cũng là một lớp phủ rộng */
+  .backdrop > b { background-size: 96px 96px; }
+
+  .card-hover:hover { transform: none; }
+  .marquee,
+  .ticker__row { animation-duration: 60s; }
 }
