@@ -67,14 +67,25 @@ export default function AdminUsers() {
     return n === null ? 0 : n
   }, [amount])
 
+  /**
+   * Số dư sau khi điều chỉnh.
+   *
+   * PHẢI dùng số đã mang dấu (`delta`), không phải `amountValue`. Trước đây
+   * dùng amountValue ⇒ bấm "− Trừ" thì ô xem trước vẫn hiện số dư TĂNG,
+   * trong khi thao tác thật lại TRỪ. Admin tưởng đang cộng cho người dùng
+   * thì thực ra đang trừ, và số dư âm. Tệ hơn: cảnh báo "sẽ thành âm" bên
+   * dưới cũng dựa trên projected nên không bao giờ chạy với lệnh trừ.
+   */
+  const delta = amountValue * Number(sign)
+
   const projected =
     target && mode === 'adjust'
-      ? (wallets[target.id]?.balance_vnd ?? 0) + amountValue
+      ? (wallets[target.id]?.balance_vnd ?? 0) + delta
       : null
 
   const submitMoney = async () => {
     if (!target || !mode) return
-    const n = mode === 'adjust' ? amountValue * Number(sign) : amountValue
+    const n = mode === 'adjust' ? delta : amountValue
     if (!Number.isSafeInteger(n) || n === 0) return setFormErr('Nhập số tiền hợp lệ.')
     if (mode === 'payout' && n <= 0) return setFormErr('Số tiền rút phải lớn hơn 0.')
     if (mode === 'adjust' && note.trim().length < 3)
@@ -290,7 +301,8 @@ export default function AdminUsers() {
                   : 'border-line/12 bg-line/5 text-muted'
               }`}
             >
-              Số dư sau khi điều chỉnh:{' '}
+              Số dư sau khi điều chỉnh ({sign === '-1' ? 'trừ' : 'cộng'}
+              {delta !== 0 ? ` ${formatVnd(Math.abs(delta))}` : ''}):{' '}
               <b className="money text-fg">
                 {formatVnd(projected)}
               </b>
